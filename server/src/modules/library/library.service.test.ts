@@ -109,6 +109,7 @@ describe('LibraryService', () => {
       achievementEvents as any,
       pathPolicy as any,
       scanScheduler as any,
+      { validate: vi.fn().mockResolvedValue(undefined) } as any,
     );
 
     libraryRepo.findPodcastIds.mockResolvedValue([]);
@@ -181,6 +182,17 @@ describe('LibraryService', () => {
   it('findOne throws when library is missing', async () => {
     libraryRepo.findById.mockResolvedValue([]);
     await expect(service.findOne(111)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rejects regex validation for podcast libraries even for superusers', async () => {
+    libraryRepo.findById.mockResolvedValue([{ id: 2, type: 'podcasts' }]);
+    libraryRepo.findFoldersByLibrary.mockResolvedValue([]);
+    await expect(
+      service.validateRegexMetadata({ config: { rules: [{ pattern: '(?<title>.+)', flags: '' }] }, libraryId: 2 }, {
+        id: 1,
+        isSuperuser: true,
+      } as any),
+    ).rejects.toThrow('Regex metadata is only available for book libraries');
   });
 
   it('verifyUserAccess bypasses lookup for superusers', async () => {
