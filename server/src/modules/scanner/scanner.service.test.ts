@@ -4154,6 +4154,44 @@ describe('regex metadata scan integration', () => {
     expect(mockMetadata.extractAndSave).not.toHaveBeenCalled();
   });
 
+  it('fails the scan instead of overwriting regex metadata after a persistence failure', async () => {
+    mockFindCandidates.mockResolvedValue({
+      candidates: [makeCandidate('/library/Author/Book', [makeFileStat()])],
+      skippedDirs: new Set(),
+      unchangedDirs: new Set(),
+      dirMtimes: new Map(),
+    });
+    const repo = regexRepo();
+    const done = awaitScan(repo);
+    const { service, regexMetadata } = makeService(repo);
+    regexMetadata.preview.mockResolvedValue({ matched: true, metadata: { title: 'Regex title' }, diagnostics: [] });
+    mockMetadata.extractAndSaveWithRegex.mockRejectedValueOnce(new Error('scoring failed after metadata was saved'));
+    await service.startScan(1, 'manual');
+    await done;
+    expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenCalledTimes(1);
+    expect(mockMetadata.extractAndSave).not.toHaveBeenCalled();
+    expect(repo.failScanJob).toHaveBeenCalledWith(100, expect.stringContaining('scoring failed'));
+    expect(repo.completeScanJob).not.toHaveBeenCalled();
+  });
+
+  it('still uses file metadata when regex evaluation throws before persistence', async () => {
+    mockFindCandidates.mockResolvedValue({
+      candidates: [makeCandidate('/library/Author/Book', [makeFileStat()])],
+      skippedDirs: new Set(),
+      unchangedDirs: new Set(),
+      dirMtimes: new Map(),
+    });
+    const repo = regexRepo();
+    const done = awaitScan(repo);
+    const { service, regexMetadata } = makeService(repo);
+    regexMetadata.preview.mockRejectedValue(new Error('worker unavailable'));
+    await service.startScan(1, 'manual');
+    await done;
+    expect(mockMetadata.extractAndSaveWithRegex).not.toHaveBeenCalled();
+    expect(mockMetadata.extractAndSave).toHaveBeenCalledTimes(1);
+    expect(repo.failScanJob).not.toHaveBeenCalled();
+  });
+
   it('does not re-extract unchanged books on a full scan after changing rules', async () => {
     mockFindCandidates.mockResolvedValue({
       candidates: [makeCandidate('/library/Author/Book', [makeFileStat()])],

@@ -359,6 +359,31 @@ describe('Library admin workflows (e2e)', { timeout: SCENARIO_TIMEOUT_MS }, () =
     expect(storedLibrary).toMatchObject(savedSettings);
   });
 
+  it.each([null, { rules: [{ pattern: '(?<title>.+)', flags: '' }] }])(
+    'lets managers save unrelated settings without a grant when regex is unchanged: %j',
+    async (regexMetadata) => {
+      const library = await createLibraryWithFolder(ctx);
+      await ctx.db.update(schema.libraries).set({ regexMetadata }).where(eq(schema.libraries.id, library.libraryId));
+      const response = await ctx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/libraries/${library.libraryId}`,
+        headers: authHeader(manager.accessToken),
+        payload: { name: `Renamed library ${library.libraryId}`, icon: 'BookOpen', regexMetadata },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toMatchObject({ name: `Renamed library ${library.libraryId}`, regexMetadata });
+      const denied = await ctx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/libraries/${library.libraryId}`,
+        headers: authHeader(manager.accessToken),
+        payload: { regexMetadata: regexMetadata === null ? { rules: [{ pattern: '(?<title>.+)', flags: '' }] } : null },
+      });
+      expect(denied.statusCode).toBe(403);
+      const [stored] = await ctx.db.select().from(schema.libraries).where(eq(schema.libraries.id, library.libraryId));
+      expect(stored.regexMetadata).toEqual(regexMetadata);
+    },
+  );
+
   describe('date added recompute', () => {
     async function finishRecompute(libraryId: number): Promise<AddedAtRecomputeJob> {
       let result: AddedAtRecomputeJob;

@@ -271,6 +271,17 @@ describe('MetadataService', () => {
   }
 
   describe('regex extraction persistence', () => {
+    it('reports scoring failure after saving regex fields without rolling them back or retrying', async () => {
+      const { db, updateSet } = makeDb();
+      const scoreService = { calculateAndSave: vi.fn().mockRejectedValue(new Error('score storage unavailable')) };
+      const service = makeService(db, undefined, { scoreService });
+      await expect(service.extractAndSaveWithRegex(9, [], { title: 'Regex title' }, ['regex', 'embedded'])).rejects.toThrow(
+        'score storage unavailable',
+      );
+      expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ title: 'Regex title' }));
+      expect(scoreService.calculateAndSave).toHaveBeenCalledTimes(1);
+    });
+
     it('preserves existing relations when regex is the only source and supplies no authors', async () => {
       const { db, updateSet } = makeDb();
       const service = makeService(db);

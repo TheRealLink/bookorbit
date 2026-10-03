@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { RegexMetadataService } from '../metadata/regex/regex-metadata.service';
 import { RegexMetadataPreviewDto, RegexMetadataValidationDto } from './dto/regex-metadata.dto';
 import {
@@ -14,7 +15,14 @@ import { readdir, realpath, rm, stat } from 'fs/promises';
 import { dirname, isAbsolute, join, relative } from 'path';
 
 import { APP_FEATURES, DEFAULT_FORMAT_PRIORITY } from '@bookorbit/types';
-import type { AccessLevel, LibraryFileSyncProgressEvent, LibraryOverviewEntry, OrganizationMode, WriteResult } from '@bookorbit/types';
+import type {
+  AccessLevel,
+  LibraryFileSyncProgressEvent,
+  LibraryOverviewEntry,
+  OrganizationMode,
+  RegexMetadataConfig,
+  WriteResult,
+} from '@bookorbit/types';
 import { podcastArtworkDirPath } from '../../common/podcast-artwork-storage';
 import { podcastFeedSnapshotPath } from '../../common/podcast-feed-snapshot-storage';
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
@@ -260,7 +268,10 @@ export class LibraryService {
     if (existing.type === 'podcasts') this.assertNoBookOnlyFields(dto);
     else this.assertNoPodcastOnlyFields(dto);
 
-    if (dto.regexMetadata !== undefined) {
+    const regexRules = (config: RegexMetadataConfig | null | undefined) => config?.rules.map(({ pattern, flags }) => [pattern, flags]) ?? null;
+    const regexMetadataChanged =
+      dto.regexMetadata !== undefined && !isDeepStrictEqual(regexRules(dto.regexMetadata), regexRules(existing.regexMetadata));
+    if (regexMetadataChanged) {
       if (!user) throw new ForbiddenException('User context is required to update regex metadata');
       await this.verifyUserAccess(user.id, id, user.isSuperuser);
       await this.regexMetadata.validate(dto.regexMetadata);
@@ -278,6 +289,7 @@ export class LibraryService {
     }
 
     const { folders: rawFolderPaths, localFolders: rawLocalFolderPaths, ...fields } = dto;
+    if (!regexMetadataChanged) delete fields.regexMetadata;
     let existingFolders: Awaited<ReturnType<LibraryRepository['findFoldersByLibrary']>> | undefined;
     let folderInputs: LibraryFolderInput[] | undefined;
     if (rawFolderPaths !== undefined || rawLocalFolderPaths !== undefined) {

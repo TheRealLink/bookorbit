@@ -1,5 +1,5 @@
 import { RegexMetadataService } from '../metadata/regex/regex-metadata.service';
-import type { RegexMetadataConfig } from '@bookorbit/types';
+import type { RegexMetadataConfig, RegexMetadataPreview } from '@bookorbit/types';
 import { ConflictException, Injectable, Logger, NotFoundException, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { mapWithConcurrency } from '../../common/utils/batch.utils';
@@ -1999,8 +1999,9 @@ export class ScannerService implements OnApplicationBootstrap {
   ): Promise<boolean> {
     if (!context?.config || context.disabled || !relativePath) return false;
     const startedAt = Date.now();
+    let result: RegexMetadataPreview;
     try {
-      const result = await this.regexMetadata.preview(context.config, relativePath);
+      result = await this.regexMetadata.preview(context.config, relativePath);
       if (result.diagnostics.some((entry) => entry.code !== 'invalid_value')) {
         context.disabled = true;
         this.logger.warn(
@@ -2009,19 +2010,20 @@ export class ScannerService implements OnApplicationBootstrap {
         return false;
       }
       if (!result.matched) return false;
-      await this.metadataService.extractAndSaveWithRegex(
-        bookId,
-        sources.map((source) => ({ key: source.key, absolutePath: source.file.absolutePath, format: source.format })),
-        result.metadata,
-        precedence,
-      );
-      return true;
     } catch (error) {
       this.logger.warn(
-        `[scanner.regex_metadata] [fail] libraryId=${libraryId} bookId=${bookId} durationMs=${Date.now() - startedAt} errorClass=${error instanceof Error ? error.name : 'Error'} error="${sanitizeLogValue(error instanceof Error ? error.message : String(error))}" - regex metadata extraction failed`,
+        `[scanner.regex_metadata] [fail] libraryId=${libraryId} bookId=${bookId} durationMs=${Date.now() - startedAt} errorClass=${error instanceof Error ? error.name : 'Error'} error="${sanitizeLogValue(error instanceof Error ? error.message : String(error))}" - regex evaluation failed`,
       );
       return false;
     }
+    // Persistence may already have written metadata before failing; never retry with different precedence.
+    await this.metadataService.extractAndSaveWithRegex(
+      bookId,
+      sources.map((source) => ({ key: source.key, absolutePath: source.file.absolutePath, format: source.format })),
+      result.metadata,
+      precedence,
+    );
+    return true;
   }
 
   private buildMetadataExtractionSources(
