@@ -521,7 +521,7 @@ const sectionListeners = {
   'update:fileWriteAudioEnabled': (value: boolean) => (form.fileWriteAudioEnabled = value),
   'update:fileWriteAudioMaxFileSizeMb': (value: number) => (form.fileWriteAudioMaxFileSizeMb = value),
   'update:pickerOpen': handleNestedModalChange,
-  'nested-modal-change': handleNestedModalChange,
+  'update:regexOpen': handleNestedModalChange,
 }
 
 useModal({

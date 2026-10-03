@@ -32,7 +32,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:regexMetadata': [value: RegexMetadataConfig | null]
-  'nested-modal-change': [value: boolean]
+  'update:regexOpen': [value: boolean]
   'update:metadataPrecedence': [value: string[]]
   'update:formatPriority': [value: string[]]
 }>()
@@ -174,11 +174,11 @@ function moveSourceDown(key: string) {
 
 function openRegex() {
   regexOpen.value = true
-  emit('nested-modal-change', true)
+  emit('update:regexOpen', true)
 }
 function closeRegex() {
   regexOpen.value = false
-  emit('nested-modal-change', false)
+  emit('update:regexOpen', false)
 }
 function applyRegex(config: RegexMetadataConfig | null) {
   emit('update:regexMetadata', config)
