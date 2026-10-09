@@ -1994,8 +1994,15 @@ export class ScannerService implements OnApplicationBootstrap {
     // 3b: Extract shared metadata from the first available configured source.
     if (shouldExtractMetadata && !selfWriteInProgress) {
       const relativePath = winner ? candidate.files.find((file) => file.absolutePath === winner.absolutePath)?.relPath : undefined;
-      const regexApplied = await this.extractRegexMetadata(book.id, libraryId, relativePath, metadataSources, metadataPrecedence, regexContext);
-      if (!regexApplied) await this.extractFirstAvailableMetadataSource(book.id, metadataSources);
+      const startedAt = Date.now();
+      try {
+        const regexApplied = await this.extractRegexMetadata(book.id, libraryId, relativePath, metadataSources, metadataPrecedence, regexContext);
+        if (!regexApplied) await this.extractFirstAvailableMetadataSource(book.id, metadataSources);
+      } catch (error) {
+        this.logger.warn(
+          `[scanner.extract_metadata] [fail] libraryId=${libraryId} bookId=${book.id} durationMs=${Date.now() - startedAt} errorClass=${error instanceof Error ? error.name : 'Error'} error="${sanitizeLogValue(error instanceof Error ? error.message : String(error))}" - metadata extraction failed; continuing scan without retry`,
+        );
+      }
     }
 
     // 3c: Write per-file duration for new, changed, or historically unprobed audio files.

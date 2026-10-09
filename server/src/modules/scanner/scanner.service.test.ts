@@ -4350,24 +4350,39 @@ describe('regex metadata scan integration', () => {
     expect(repo.failScanJob).not.toHaveBeenCalled();
   });
 
-  it('fails the scan instead of overwriting regex metadata after a persistence failure', async () => {
+  it.each(['file extraction failed', 'scoring failed after metadata was saved'])('continues later books without retry after %s', async (message) => {
     mockFindCandidates.mockResolvedValue({
-      candidates: [makeCandidate('/library/Author/Book', [makeFileStat()])],
+      candidates: [
+        makeCandidate('/library/Author/Book', [makeFileStat()]),
+        makeCandidate('/library/Author/Other', [
+          makeFileStat({ absolutePath: '/library/Author/Other/book.epub', relPath: 'Author/Other/book.epub', ino: 2002n }),
+        ]),
+      ],
       skippedDirs: new Set(),
       unchangedDirs: new Set(),
       dirMtimes: new Map(),
     });
     const repo = regexRepo();
+    repo.createBook
+      .mockResolvedValueOnce({ id: 1, status: 'present', folderPath: '/library/Author/Book' })
+      .mockResolvedValueOnce({ id: 2, status: 'present', folderPath: '/library/Author/Other' });
     const done = awaitScan(repo);
     const { service, regexMetadata } = makeService(repo);
     regexMetadata.preview.mockResolvedValue({ matched: true, metadata: { title: 'Regex title' }, diagnostics: [] });
-    mockMetadata.extractAndSaveWithRegex.mockRejectedValueOnce(new Error('scoring failed after metadata was saved'));
+    mockMetadata.extractAndSaveWithRegex.mockRejectedValueOnce(new Error(message));
     await service.startScan(1, 'manual');
     await done;
-    expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenCalledTimes(1);
+    expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenCalledTimes(2);
+    expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenNthCalledWith(2, 2, expect.any(Array), { title: 'Regex title' }, [
+      'regex',
+      'embedded',
+      'opfFile',
+    ]);
     expect(mockMetadata.extractAndSave).not.toHaveBeenCalled();
-    expect(repo.failScanJob).toHaveBeenCalledWith(100, expect.stringContaining('scoring failed'));
-    expect(repo.completeScanJob).not.toHaveBeenCalled();
+    expect(repo.failScanJob).not.toHaveBeenCalled();
+    expect(repo.completeScanJob).toHaveBeenCalled();
+    expect(repo.promoteProcessingBookToPresent).toHaveBeenCalledWith(1);
+    expect(repo.promoteProcessingBookToPresent).toHaveBeenCalledWith(2);
   });
 
   it('still uses file metadata when regex evaluation throws before persistence', async () => {
