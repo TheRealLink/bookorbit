@@ -719,8 +719,36 @@
     {
       "idx": 102,
       "version": "7",
-      "when": 1790973043364,
-      "tag": "0102_regex_metadata",
+      "when": 1791126075111,
+      "tag": "0102_add_book_journal_and_annotation_stars",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1791330236442,
+      "tag": "0103_fix_kobo_koreader_download_matching",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1791351760200,
+      "tag": "0104_add_library_file_write_all_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1791388600818,
+      "tag": "0105_add_library_file_write_read_along",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1791570865295,
+      "tag": "0106_regex_metadata",
       "breakpoints": true
     }
   ]

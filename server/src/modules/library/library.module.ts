@@ -1,4 +1,5 @@
 import { MetadataModule } from '../metadata/metadata.module';
+import { ReadingAttemptEventsModule } from '../user-book-status/reading-attempt-events.module';
 import { Module, forwardRef } from '@nestjs/common';
 
 import { AchievementModule } from '../achievement/achievement.module';
@@ -17,6 +18,7 @@ import { LibraryAddedAtService } from './library-added-at.service';
 
 @Module({
   imports: [
+    ReadingAttemptEventsModule,
     ScannerModule,
     MetadataModule,
     AchievementModule,

@@ -64,6 +64,9 @@ function blankForm() {
     fileWriteKindleMaxFileSizeMb: 100,
     fileWriteAudioEnabled: true,
     fileWriteAudioMaxFileSizeMb: 500,
+    fileWriteAllFiles: false,
+    fileWriteReadAlongEnabled: false,
+    fileWriteReadAlongMaxFileSizeMb: 1000,
     fileRenameEnabled: false,
   }
 }
@@ -108,6 +111,7 @@ export function useLibraryCreator() {
       form.fileWriteCbxMaxFileSizeMb,
       form.fileWriteKindleMaxFileSizeMb,
       form.fileWriteAudioMaxFileSizeMb,
+      form.fileWriteReadAlongMaxFileSizeMb,
     ]
     if (fileSizes.some((value) => !Number.isInteger(value) || value < FILE_SIZE_MIN_MB || value > FILE_SIZE_MAX_MB)) {
       errors.fileWrite = t('library.creator.errors.fileSizeRange')
@@ -183,6 +187,9 @@ export function useLibraryCreator() {
     form.fileWriteKindleMaxFileSizeMb = library.fileWriteKindleMaxFileSizeMb
     form.fileWriteAudioEnabled = library.fileWriteAudioEnabled
     form.fileWriteAudioMaxFileSizeMb = library.fileWriteAudioMaxFileSizeMb
+    form.fileWriteAllFiles = library.fileWriteAllFiles
+    form.fileWriteReadAlongEnabled = library.fileWriteReadAlongEnabled
+    form.fileWriteReadAlongMaxFileSizeMb = library.fileWriteReadAlongMaxFileSizeMb
     form.fileRenameEnabled = library.fileRenameEnabled
   }
 

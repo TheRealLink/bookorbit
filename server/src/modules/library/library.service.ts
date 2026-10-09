@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { RegexMetadataService } from '../metadata/regex/regex-metadata.service';
 import { RegexMetadataPreviewDto, RegexMetadataValidationDto } from './dto/regex-metadata.dto';
+import { ReadingAttemptEventsService } from '../user-book-status/reading-attempt-events.service';
 import {
   BadRequestException,
   ConflictException,
@@ -89,6 +90,9 @@ const BOOK_ONLY_LIBRARY_FIELDS = [
   'fileWriteKindleMaxFileSizeMb',
   'fileWriteAudioEnabled',
   'fileWriteAudioMaxFileSizeMb',
+  'fileWriteAllFiles',
+  'fileWriteReadAlongEnabled',
+  'fileWriteReadAlongMaxFileSizeMb',
   'fileRenameEnabled',
 ] as const;
 
@@ -109,6 +113,7 @@ export class LibraryService {
     private readonly pathPolicy: PathPolicyService,
     private readonly scanScheduler: LibraryScanSchedulerService,
     private readonly regexMetadata: RegexMetadataService,
+    private readonly readingAttemptEvents: ReadingAttemptEventsService,
   ) {
     this.appDataPath = this.config.get<string>('storage.appDataPath')!;
   }
@@ -242,6 +247,9 @@ export class LibraryService {
       fileWriteKindleMaxFileSizeMb: libraryType === 'books' ? (dto.fileWriteKindleMaxFileSizeMb ?? 100) : 100,
       fileWriteAudioEnabled: libraryType === 'books' ? (dto.fileWriteAudioEnabled ?? true) : false,
       fileWriteAudioMaxFileSizeMb: libraryType === 'books' ? (dto.fileWriteAudioMaxFileSizeMb ?? 500) : 500,
+      fileWriteAllFiles: libraryType === 'books' ? (dto.fileWriteAllFiles ?? false) : false,
+      fileWriteReadAlongEnabled: libraryType === 'books' ? (dto.fileWriteReadAlongEnabled ?? false) : false,
+      fileWriteReadAlongMaxFileSizeMb: libraryType === 'books' ? (dto.fileWriteReadAlongMaxFileSizeMb ?? 1000) : 1000,
       fileRenameEnabled: libraryType === 'books' ? (dto.fileRenameEnabled ?? false) : false,
     });
 
@@ -390,6 +398,7 @@ export class LibraryService {
       const removedPodcastFiles = existing.type === 'podcasts' ? await this.removePodcastFiles(id) : 0;
       if (existing.type === 'podcasts') await this.removePodcastAppDataFiles(id);
       await this.libraryRepo.delete(id);
+      this.readingAttemptEvents.notifyChanged(null);
       this.scanScheduler.removeSchedule(id);
       await this.cleanupCoverDirectories(bookRows.map(({ id: bookId }) => bookId));
       this.logger.log(
