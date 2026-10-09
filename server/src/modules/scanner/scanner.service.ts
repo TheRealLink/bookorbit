@@ -165,6 +165,7 @@ interface RegisteredFile {
   isNew: boolean;
   wasReassigned: boolean;
   wasChanged: boolean;
+  wasPathChanged: boolean;
   mediaOverlayAvailable: boolean;
   /** This book's stored sort order for the file before this scan; null when the file is new to it. */
   previousSortOrder: number | null;
@@ -180,6 +181,7 @@ interface ProcessedFileResult {
   isNew: boolean;
   reassigned: boolean;
   changed: boolean;
+  pathChanged?: boolean;
   fileId: number | null;
   /** The book that owned the file before this scan moved it here. */
   previousBookId?: number;
@@ -1918,6 +1920,7 @@ export class ScannerService implements OnApplicationBootstrap {
           isNew: processResult.isNew,
           wasReassigned: processResult.reassigned,
           wasChanged: processResult.changed,
+          wasPathChanged: processResult.pathChanged === true,
           mediaOverlayAvailable: fileByPath.get(fileStat.absolutePath)?.mediaOverlayAvailable === true,
           previousSortOrder,
         });
@@ -1951,7 +1954,9 @@ export class ScannerService implements OnApplicationBootstrap {
     const metadataSources = this.buildMetadataExtractionSources(registeredFiles, winner, metadataPrecedence);
     const shouldExtractMetadata =
       metadataSources.some((source) => hasMetadataSourceChanged(source.file)) ||
-      (regexContext?.config != null && winner !== null && hasMetadataSourceChanged(winner)) ||
+      (regexContext?.config != null &&
+        winner !== null &&
+        (hasMetadataSourceChanged(winner) || winner.wasPathChanged || winner.fileId !== book.primaryFileId)) ||
       (book.primaryFileId === null && winner !== null);
     const audioContentFiles = contentFiles.filter((f) => f.format !== null && isAudioFormat(f.format!));
     const changedAudioFiles = audioContentFiles.filter(hasMetadataSourceChanged);
@@ -2645,7 +2650,14 @@ export class ScannerService implements OnApplicationBootstrap {
         mtime: fileStat.mtime,
       });
     }
-    return { isNew: false, reassigned, changed: !sizeUnchanged || !mtimeUnchanged, fileId: byPath.id, previousBookId };
+    return {
+      isNew: false,
+      reassigned,
+      changed: !sizeUnchanged || !mtimeUnchanged,
+      pathChanged: !relPathUnchanged,
+      fileId: byPath.id,
+      previousBookId,
+    };
   }
 
   private async resolveByLocalIno(
@@ -2701,6 +2713,7 @@ export class ScannerService implements OnApplicationBootstrap {
       isNew: false,
       reassigned: byIno.bookId !== bookId,
       changed: !sizeUnchanged || !mtimeUnchanged,
+      pathChanged: oldPathEntry?.relPath !== fileStat.relPath,
       fileId: byIno.id,
       previousBookId: byIno.bookId !== bookId ? byIno.bookId : undefined,
     };
@@ -2784,6 +2797,7 @@ export class ScannerService implements OnApplicationBootstrap {
       isNew: false,
       reassigned: globalByIno.file.bookId !== bookId,
       changed: !sizeUnchanged || !mtimeUnchanged,
+      pathChanged: globalByIno.file.relPath !== fileStat.relPath,
       fileId: globalByIno.file.id,
       previousBookId: globalByIno.file.bookId !== bookId ? globalByIno.file.bookId : undefined,
     };
@@ -2867,6 +2881,7 @@ export class ScannerService implements OnApplicationBootstrap {
           isNew: false,
           reassigned: byHash.bookId !== bookId,
           changed: false,
+          pathChanged: byHash.relPath !== fileStat.relPath,
           fileId: byHash.id,
           previousBookId: byHash.bookId !== bookId ? byHash.bookId : undefined,
         };
@@ -2938,6 +2953,7 @@ export class ScannerService implements OnApplicationBootstrap {
           isNew: false,
           reassigned: globalByHash.file.bookId !== bookId,
           changed: false,
+          pathChanged: globalByHash.file.relPath !== fileStat.relPath,
           fileId: globalByHash.file.id,
           previousBookId: globalByHash.file.bookId !== bookId ? globalByHash.file.bookId : undefined,
         };
