@@ -4,7 +4,7 @@ import { basename, join } from 'path';
 
 import { and, eq, sql } from 'drizzle-orm';
 import { Permission } from '@bookorbit/types';
-import type { AddedAtRecomputeJob } from '@bookorbit/types';
+import type { AddedAtRecomputeJob, RegexMetadataConfig } from '@bookorbit/types';
 
 import * as schema from '../src/db/schema';
 import { waitForCondition, waitForScanCompletion } from './e2e/app-harness';
@@ -140,6 +140,8 @@ async function createLibraryViaApi(
     readingThreshold: number;
     markAsFinishedPercentComplete: number;
     fileWriteEnabled: boolean;
+    regexMetadata: RegexMetadataConfig;
+    metadataPrecedence: string[];
   }>,
 ): Promise<{
   response: InjectResponse;
@@ -167,6 +169,8 @@ async function createLibraryViaApi(
       readingThreshold: input?.readingThreshold ?? 0.4,
       markAsFinishedPercentComplete: input?.markAsFinishedPercentComplete ?? 95,
       fileWriteEnabled: input?.fileWriteEnabled ?? false,
+      regexMetadata: input?.regexMetadata,
+      metadataPrecedence: input?.metadataPrecedence,
     },
   });
   expect(response.statusCode).toBe(201);
@@ -660,6 +664,14 @@ describe('Library admin workflows (e2e)', { timeout: SCENARIO_TIMEOUT_MS }, () =
   });
 
   describe('create library and manage access', () => {
+    it.each([undefined, ['regex', 'embedded']])('creates regex rules with precedence %j', async (metadataPrecedence) => {
+      const regexMetadata = { rules: [{ pattern: '(?<title>.+)', flags: '' }] };
+      const { body: library } = await createLibraryViaApi(ctx, manager.accessToken, { regexMetadata, metadataPrecedence });
+      expect(library.regexMetadata).toEqual(regexMetadata);
+      expect(library.metadataPrecedence).toEqual(metadataPrecedence ?? ['folderStructure', 'embedded', 'nfoFile', 'opfFile', 'sidecar', 'regex']);
+      await waitForNoRunningScans(ctx, library.id);
+    });
+
     it('persists fractional finished thresholds through create and update', async () => {
       const { body: createdLibrary } = await createLibraryViaApi(ctx, manager.accessToken, {
         markAsFinishedPercentComplete: 99.95,

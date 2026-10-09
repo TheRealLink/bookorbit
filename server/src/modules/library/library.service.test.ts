@@ -270,6 +270,20 @@ describe('LibraryService', () => {
     await expect(service.verifyUserAccessLevel(1, 2, true, 'owner')).resolves.toBeUndefined();
   });
 
+  it.each([undefined, ['regex', 'embedded']])('preserves regex configuration with precedence %j on create', async (metadataPrecedence) => {
+    const config = { rules: [{ pattern: '(?<title>.+)', flags: '' }] };
+    libraryRepo.findByName.mockResolvedValue([]);
+    libraryRepo.insert.mockResolvedValue([{ id: 5, type: 'books', name: 'Regex', icon: 'BookOpen' }]);
+    libraryRepo.insertFolders.mockResolvedValue([]);
+    await service.create({ name: 'Regex', icon: 'BookOpen', folders: ['/a'], regexMetadata: config, metadataPrecedence });
+    expect(libraryRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        regexMetadata: config,
+        metadataPrecedence: metadataPrecedence ?? ['folderStructure', 'embedded', 'nfoFile', 'opfFile', 'sidecar', 'regex'],
+      }),
+    );
+  });
+
   it('create applies defaults, inserts folders, and starts an async scan', async () => {
     libraryRepo.findByName.mockResolvedValue([]);
     libraryRepo.insert.mockResolvedValue([{ id: 5, type: 'books', name: 'Sci-Fi', icon: 'BookOpen' }]);
@@ -286,7 +300,7 @@ describe('LibraryService', () => {
         icon: 'BookOpen',
         displayOrder: 0,
         watch: false,
-        metadataPrecedence: ['folderStructure', 'embedded', 'nfoFile', 'opfFile', 'sidecar'],
+        metadataPrecedence: ['folderStructure', 'embedded', 'nfoFile', 'opfFile', 'sidecar', 'regex'],
         formatPriority: ['epub', 'kepub', 'pdf', 'cbz', 'cbr', 'cb7', 'mobi', 'azw3', 'azw', 'fb2', 'm4b', 'mp3', 'm4a', 'opus', 'ogg', 'flac'],
         organizationMode: 'book_per_folder',
         coverAspectRatio: '2/3',
