@@ -160,7 +160,7 @@ export class MetadataService {
       const baseIndex = selected ? precedence.indexOf(selected.key) : -1;
       const preferRegex = !selected || (regexIndex !== -1 && (baseIndex === -1 || regexIndex < baseIndex));
       const data = mergeRegexMetadata(base, regex, preferRegex);
-      await this.persistMetadata(bookId, data, selected?.format ?? 'regex', base === null);
+      await this.persistMetadata(bookId, data, selected?.format ?? 'regex', true);
       if (selected) {
         if (base?.cover) await this.persistSourceCover(bookId, selected.format, base.cover);
         await this.persistFixedLayout(bookId, selected.absolutePath, base?.isFixedLayout);
