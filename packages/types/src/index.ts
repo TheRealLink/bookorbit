@@ -26,6 +26,7 @@ export * from "./library";
 export * from "./format-priority";
 export * from "./maintenance";
 export * from "./metadata-fetch";
+export * from "./metadata-cache";
 export * from "./pattern-resolver";
 export * from "./query";
 export * from "./jump-buckets";
@@ -85,5 +86,6 @@ export * from "./cron";
 export * from "./tts";
 export * from "./watch-download";
 export * from "./podcast";
-
 export * from "./regex-metadata";
+export * from "./delivery";
+export * from "./email";
