@@ -150,7 +150,15 @@ export class MetadataService {
       let base: ParsedBookData | null = null;
       let selected: (typeof sources)[number] | undefined;
       for (const source of sources) {
-        base = await this.extractionService.extract(source.absolutePath, source.format);
+        const sourceStartedAt = Date.now();
+        try {
+          base = await this.extractionService.extract(source.absolutePath, source.format);
+        } catch (error) {
+          this.logger.warn(
+            `[metadata.extract_source] [fail] bookId=${bookId} source="${sanitizeLogValue(source.key)}" format="${sanitizeLogValue(source.format)}" durationMs=${Date.now() - sourceStartedAt} errorClass=${error instanceof Error ? error.name : 'Error'} error="${sanitizeLogValue(error instanceof Error ? error.message : String(error))}" - file metadata extraction failed; continuing with remaining sources and regex`,
+          );
+          continue;
+        }
         if (base) {
           selected = source;
           break;

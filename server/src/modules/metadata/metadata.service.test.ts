@@ -354,6 +354,67 @@ describe('MetadataService', () => {
       });
     });
 
+    describe('file extraction failures', () => {
+      const sources = [
+        { key: 'embedded', absolutePath: '/books/file.epub', format: 'epub' },
+        { key: 'opfFile', absolutePath: '/books/metadata.opf', format: 'opf' },
+      ];
+
+      afterEach(() => vi.restoreAllMocks());
+
+      it('continues to the next file source and respects its precedence over regex', async () => {
+        const { db, updateSet } = makeDb();
+        const service = makeService(db);
+        const extraction = vi
+          .spyOn(MetadataExtractionService.prototype, 'extract')
+          .mockRejectedValueOnce(new Error('unreadable file'))
+          .mockResolvedValueOnce({ title: 'OPF title', authors: [{ name: 'OPF Author', sortName: null }], genres: [], cover: null });
+        const replaceAuthors = vi.spyOn(service, 'replaceAuthors').mockResolvedValue(undefined);
+
+        await service.extractAndSaveWithRegex(9, sources, { title: 'Regex title', seriesName: 'Path Series' }, ['embedded', 'opfFile', 'regex']);
+
+        expect(extraction).toHaveBeenNthCalledWith(1, '/books/file.epub', 'epub');
+        expect(extraction).toHaveBeenNthCalledWith(2, '/books/metadata.opf', 'opf');
+        expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ title: 'OPF title', seriesName: 'Path Series' }));
+        expect(replaceAuthors).toHaveBeenCalledWith(9, [{ name: 'OPF Author', sortName: null }]);
+      });
+
+      it('saves regex metadata and preserves omitted relations when every file source rejects', async () => {
+        const { db, updateSet } = makeDb();
+        const scoreService = { calculateAndSave: vi.fn().mockResolvedValue(undefined) };
+        const service = makeService(db, undefined, { scoreService });
+        const extraction = vi.spyOn(MetadataExtractionService.prototype, 'extract').mockRejectedValue(new Error('unreadable file'));
+        const replaceAuthors = vi.spyOn(service, 'replaceAuthors');
+        const replaceGenres = vi.spyOn(service, 'replaceGenres');
+
+        await service.extractAndSaveWithRegex(9, sources, { title: 'Regex title', seriesName: 'Path Series' }, ['embedded', 'regex', 'opfFile']);
+
+        expect(extraction).toHaveBeenCalledTimes(2);
+        expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ title: 'Regex title', seriesName: 'Path Series' }));
+        expect(replaceAuthors).not.toHaveBeenCalled();
+        expect(replaceGenres).not.toHaveBeenCalled();
+        expect(scoreService.calculateAndSave).toHaveBeenCalledWith(9);
+      });
+
+      it('propagates persistence failures without trying another file source or retrying the write', async () => {
+        const { db, updateSet, updateWhere } = makeDb();
+        updateWhere.mockRejectedValueOnce(new Error('database unavailable'));
+        const scoreService = { calculateAndSave: vi.fn() };
+        const service = makeService(db, undefined, { scoreService });
+        const extraction = vi
+          .spyOn(MetadataExtractionService.prototype, 'extract')
+          .mockResolvedValue({ title: 'File title', authors: [], genres: [], cover: null });
+
+        await expect(service.extractAndSaveWithRegex(9, sources, { seriesName: 'Path Series' }, ['regex', 'embedded', 'opfFile'])).rejects.toThrow(
+          'database unavailable',
+        );
+
+        expect(extraction).toHaveBeenCalledTimes(1);
+        expect(updateSet).toHaveBeenCalledTimes(1);
+        expect(scoreService.calculateAndSave).not.toHaveBeenCalled();
+      });
+    });
+
     it('reports scoring failure after saving regex fields without rolling them back or retrying', async () => {
       const { db, updateSet } = makeDb();
       const scoreService = { calculateAndSave: vi.fn().mockRejectedValue(new Error('score storage unavailable')) };
