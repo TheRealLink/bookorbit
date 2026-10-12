@@ -90,8 +90,10 @@ const childGetter = (doc, ns) => {
       $$: () => [],
       $$$: () => [],
     }
-  // ignore the namespace if it doesn't appear in document at all
-  const useNS = doc.lookupNamespaceURI(null) === ns || doc.lookupPrefix(ns)
+  // match by namespace only when the document's elements are actually in it: an OPF whose
+  // <package> lost its default xmlns (e.g. a `mlns` typo) can still bind the namespace to a
+  // prefix for its `opf:` attributes, which must not make its unqualified elements invisible
+  const useNS = doc.documentElement.namespaceURI === ns
   const f = useNS ? (el, name) => (el) => el.namespaceURI === ns && el.localName === name : (el, name) => (el) => el.localName === name
   return {
     $: (el, name) => [...el.children].find(f(el, name)),
@@ -179,13 +181,34 @@ const getPropertyURL = (value, prefixes) => {
   return baseURL ? baseURL + reference : null
 }
 
+const groupBy = (items, getKey) => {
+  const groups = Object.create(null)
+  for (const item of items) {
+    const key = getKey(item)
+    ;(groups[key] ??= []).push(item)
+  }
+  return groups
+}
+
+const groupByMap = (items, getKey) => {
+  const groups = new Map()
+  for (const item of items) {
+    const key = getKey(item)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(item)
+  }
+  return groups
+}
+
 const getMetadata = (opf) => {
   const { $ } = childGetter(opf, NS.OPF)
   const $metadata = $(opf.documentElement, 'metadata')
+  // without the package's default xmlns its own elements, `meta` included, have no namespace
+  const opfNS = opf.documentElement.namespaceURI === NS.OPF ? NS.OPF : null
 
   // first pass: convert to JS objects
-  const els = Object.groupBy($metadata.children, (el) =>
-    el.namespaceURI === NS.DC ? 'dc' : el.namespaceURI === NS.OPF && el.localName === 'meta' ? (el.hasAttribute('name') ? 'legacyMeta' : 'meta') : '',
+  const els = groupBy($metadata.children, (el) =>
+    el.namespaceURI === NS.DC ? 'dc' : el.namespaceURI === opfNS && el.localName === 'meta' ? (el.hasAttribute('name') ? 'legacyMeta' : 'meta') : '',
   )
   const baseLang = $metadata.getAttribute('xml:lang') ?? opf.documentElement.getAttribute('xml:lang') ?? 'und'
   const prefixes = getPrefixes(opf)
@@ -206,13 +229,13 @@ const getMetadata = (opf) => {
       ),
     }
   }
-  const refines = Map.groupBy(els.meta ?? [], (el) => el.getAttribute('refines'))
+  const refines = groupByMap(els.meta ?? [], (el) => el.getAttribute('refines'))
   const getProperties = (el) => {
     const els = refines.get(el ? '#' + el.getAttribute('id') : null)
     if (!els) return null
-    return Object.groupBy(els.map(parse), (x) => x.property)
+    return groupBy(els.map(parse), (x) => x.property)
   }
-  const dc = Object.fromEntries(Object.entries(Object.groupBy(els.dc, (el) => el.localName)).map(([name, els]) => [name, els.map(parse)]))
+  const dc = Object.fromEntries(Object.entries(groupBy(els.dc, (el) => el.localName)).map(([name, els]) => [name, els.map(parse)]))
   const properties = getProperties() ?? {}
   const legacyMeta = Object.fromEntries(els.legacyMeta?.map((el) => [el.getAttribute('name'), el.getAttribute('content')]) ?? [])
 
@@ -264,9 +287,7 @@ const getMetadata = (opf) => {
     }
     return value
   }
-  const belongsTo = Object.groupBy(properties['belongs-to-collection'] ?? [], (x) =>
-    prop(x, 'collection-type') === 'series' ? 'series' : 'collection',
-  )
+  const belongsTo = groupBy(properties['belongs-to-collection'] ?? [], (x) => (prop(x, 'collection-type') === 'series' ? 'series' : 'collection'))
   const mainTitle = dc.title?.find((x) => prop(x, 'title-type') === 'main') ?? dc.title?.[0]
   const metadata = {
     identifier: getIdentifier(opf),
