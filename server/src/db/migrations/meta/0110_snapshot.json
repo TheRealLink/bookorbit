@@ -1,5 +1,5 @@
 {
-  "id": "82c3be0c-51d9-49a1-af2b-ced5d123d073",
+  "id": "aa0873fc-44ae-4a3a-808a-6fcfda65b34f",
   "prevId": "6afd55b0-5e9e-4a90-b4b0-082fa7e83d54",
   "version": "7",
   "dialect": "postgresql",
@@ -2840,12 +2840,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'[\"folderStructure\",\"embedded\",\"nfoFile\",\"opfFile\",\"sidecar\"]'::jsonb"
-        },
-        "regex_metadata": {
-          "name": "regex_metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "format_priority": {
           "name": "format_priority",
@@ -15762,6 +15756,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "last_tested_at": {
+          "name": "last_tested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_test_ok": {
+          "name": "last_test_ok",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_test_error": {
+          "name": "last_test_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
