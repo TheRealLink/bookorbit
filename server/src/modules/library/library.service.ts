@@ -45,6 +45,7 @@ import {
   DEFAULT_LIBRARY_ADDED_AT_SOURCE,
   DEFAULT_LIBRARY_COVER_ASPECT_RATIO,
   DEFAULT_LIBRARY_ORGANIZATION_MODE,
+  EDITOR_ACCESS_LEVELS,
   LIBRARY_METADATA_PRECEDENCE_DEFAULT,
 } from './library.constants';
 import { resolveLibraryFolderRoles, type LibraryFolderInput } from './library-folder-roles.utils';
@@ -167,6 +168,13 @@ export class LibraryService {
 
   async findAccessibleLibraryIds(user: RequestUser): Promise<number[]> {
     const ids = user.isSuperuser ? await this.libraryRepo.findAllIds() : await this.libraryRepo.findAccessibleIdsForUser(user.id);
+    return ids.map(({ id }) => id);
+  }
+
+  async findEditableLibraryIds(user: RequestUser): Promise<number[]> {
+    const ids = user.isSuperuser
+      ? await this.libraryRepo.findAllIds()
+      : await this.libraryRepo.findAccessibleIdsForUser(user.id, EDITOR_ACCESS_LEVELS);
     return ids.map(({ id }) => id);
   }
 
