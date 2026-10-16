@@ -1,5 +1,6 @@
 import { RegexMetadataService } from './regex/regex-metadata.service';
 import { Module } from '@nestjs/common';
+import { DjvuDocumentModule } from '../djvu/djvu-document.module';
 
 import { BookMetadataLockModule } from '../book-metadata-lock/book-metadata-lock.module';
 import { BookCoverStoreModule } from '../book-cover-store/book-cover-store.module';
@@ -13,7 +14,7 @@ import { MetadataEventsService } from './metadata-events.service';
 import { MetadataService } from './metadata.service';
 
 @Module({
-  imports: [BookMetadataLockModule, BookCoverStoreModule, EmbeddingModule, MetadataScoreModule, NarratorModule],
+  imports: [BookMetadataLockModule, BookCoverStoreModule, EmbeddingModule, MetadataScoreModule, NarratorModule, DjvuDocumentModule],
   providers: [RegexMetadataService, MetadataService, MetadataExtractionService, MetadataEventsService, ComicMetadataRepository, CoverSlotReconciler],
   exports: [RegexMetadataService, MetadataService, MetadataExtractionService, MetadataEventsService, ComicMetadataRepository, CoverSlotReconciler],
 })

@@ -1,5 +1,5 @@
 {
-  "id": "69cce0e0-d4eb-4e40-9723-86c3516dc8df",
+  "id": "c9b006eb-1457-4e6b-bdae-5a00a47e37c3",
   "prevId": "912dc0d0-ce81-45d4-aa98-cf119e87a6ae",
   "version": "7",
   "dialect": "postgresql",
@@ -2840,12 +2840,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'[\"folderStructure\",\"embedded\",\"nfoFile\",\"opfFile\",\"sidecar\"]'::jsonb"
-        },
-        "regex_metadata": {
-          "name": "regex_metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "format_priority": {
           "name": "format_priority",
@@ -16180,7 +16174,7 @@
         },
         "email_recipients_preferred_format_chk": {
           "name": "email_recipients_preferred_format_chk",
-          "value": "\"email_recipients\".\"preferred_format\" is null or \"email_recipients\".\"preferred_format\" in ('epub', 'pdf', 'mobi', 'azw3', 'cbz', 'cbr')"
+          "value": "\"email_recipients\".\"preferred_format\" is null or \"email_recipients\".\"preferred_format\" in ('epub', 'pdf', 'mobi', 'azw3', 'cbz', 'cbr', 'djvu')"
         }
       },
       "isRLSEnabled": false
