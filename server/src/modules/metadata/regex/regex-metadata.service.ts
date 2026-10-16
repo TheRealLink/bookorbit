@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { BadRequestException, Injectable, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
@@ -11,6 +11,14 @@ import {
 } from '@bookorbit/types';
 import { prepareRegexMetadataPath } from './regex-metadata-path';
 import type { RegexMetadataTask } from './regex-metadata-engine';
+
+const INTERACTIVE_QUEUE_LIMIT = 32;
+const TRANSIENT_CODES: ReadonlySet<RegexMetadataDiagnosticCode> = new Set(['timeout', 'busy', 'worker_failed']);
+
+/** Whether the result failed because of the worker pool rather than the rules. */
+export function isTransientRegexFailure(code: RegexMetadataDiagnosticCode): boolean {
+  return TRANSIENT_CODES.has(code);
+}
 
 interface Task {
   input: RegexMetadataTask;
@@ -31,26 +39,39 @@ export class RegexMetadataService implements OnModuleDestroy {
   private readonly queue: Task[] = [];
   private stopped = false;
 
+  /** Rejects rules that cannot be saved; a pool failure is reported as unavailable, never as invalid rules. */
   async validate(config: RegexMetadataConfig | null | undefined): Promise<void> {
     if (config == null) return;
-    const result = await this.check(config);
-    if (result.diagnostics.length)
-      throw new BadRequestException({ message: 'Invalid regex metadata configuration', diagnostics: result.diagnostics });
+    const { diagnostics } = await this.runWithRetry({ config });
+    if (diagnostics.some((diagnostic) => isTransientRegexFailure(diagnostic.code)))
+      throw new ServiceUnavailableException('Regex metadata rules could not be checked right now');
+    if (diagnostics.length) throw new BadRequestException({ message: 'Invalid regex metadata configuration', diagnostics });
   }
 
   async check(config: RegexMetadataConfig): Promise<RegexMetadataValidation> {
-    const result = await this.run({ config });
+    const result = await this.run({ config }, true);
     return { valid: result.diagnostics.length === 0, diagnostics: result.diagnostics };
   }
 
   preview(config: RegexMetadataConfig, relativePath: string): Promise<RegexMetadataPreview> {
-    return this.run({ config, inputPath: prepareRegexMetadataPath(relativePath) });
+    return this.run({ config, inputPath: prepareRegexMetadataPath(relativePath) }, true);
   }
 
-  private run(input: RegexMetadataTask): Promise<RegexMetadataPreview> {
+  /** Scanner entry point: never refused for a full queue, and retried once after a pool failure. */
+  evaluate(config: RegexMetadataConfig, relativePath: string): Promise<RegexMetadataPreview> {
+    return this.runWithRetry({ config, inputPath: prepareRegexMetadataPath(relativePath) });
+  }
+
+  private async runWithRetry(input: RegexMetadataTask): Promise<RegexMetadataPreview> {
+    const result = await this.run(input, false);
+    // The timeout runs on the main thread, so a stalled event loop can trip it; a second attempt tells that apart from a slow expression.
+    return result.diagnostics.some((diagnostic) => isTransientRegexFailure(diagnostic.code)) ? this.run(input, false) : result;
+  }
+
+  private run(input: RegexMetadataTask, interactive: boolean): Promise<RegexMetadataPreview> {
     this.assertBounds(input.config);
     if (this.stopped) return Promise.resolve(this.failure(input, 'worker_failed'));
-    if (this.queue.length >= 32) return Promise.resolve(this.failure(input, 'busy'));
+    if (interactive && this.queue.length >= INTERACTIVE_QUEUE_LIMIT) return Promise.resolve(this.failure(input, 'busy'));
     return new Promise((resolve) => {
       this.queue.push({ input, resolve });
       this.dispatch();

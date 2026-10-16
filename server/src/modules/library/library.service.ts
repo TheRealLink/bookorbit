@@ -185,21 +185,19 @@ export class LibraryService {
     return { ...normalizeLibraryOrganizationMode(library), folders };
   }
 
-  private async verifyRegexMetadataAccess(dto: RegexMetadataValidationDto, user: RequestUser) {
-    if (dto.libraryId !== undefined) {
-      await this.verifyUserAccess(user.id, dto.libraryId, user.isSuperuser);
-      const library = await this.findOne(dto.libraryId);
-      if (library.type !== 'books') throw new BadRequestException('Regex metadata is only available for book libraries');
-    }
+  private async assertRegexMetadataLibrary(libraryId: number | undefined) {
+    if (libraryId === undefined) return;
+    const library = await this.findOne(libraryId);
+    if (library.type !== 'books') throw new BadRequestException('Regex metadata is only available for book libraries');
   }
 
-  async validateRegexMetadata(dto: RegexMetadataValidationDto, user: RequestUser) {
-    await this.verifyRegexMetadataAccess(dto, user);
+  async validateRegexMetadata(dto: RegexMetadataValidationDto) {
+    await this.assertRegexMetadataLibrary(dto.libraryId);
     return this.regexMetadata.check(dto.config);
   }
 
-  async previewRegexMetadata(dto: RegexMetadataPreviewDto, user: RequestUser) {
-    await this.verifyRegexMetadataAccess(dto, user);
+  async previewRegexMetadata(dto: RegexMetadataPreviewDto) {
+    await this.assertRegexMetadataLibrary(dto.libraryId);
     return this.regexMetadata.preview(dto.config, dto.relativePath);
   }
 
@@ -278,7 +276,7 @@ export class LibraryService {
     return { ...normalizeLibraryOrganizationMode(library), folders };
   }
 
-  async update(id: number, dto: UpdateLibraryDto, user?: RequestUser) {
+  async update(id: number, dto: UpdateLibraryDto) {
     const [existing] = await this.libraryRepo.findById(id);
     if (!existing) throw new NotFoundException('Library not found');
     if (existing.type === 'podcasts') this.assertNoBookOnlyFields(dto);
@@ -287,11 +285,7 @@ export class LibraryService {
     const regexRules = (config: RegexMetadataConfig | null | undefined) => config?.rules.map(({ pattern, flags }) => [pattern, flags]) ?? null;
     const regexMetadataChanged =
       dto.regexMetadata !== undefined && !isDeepStrictEqual(regexRules(dto.regexMetadata), regexRules(existing.regexMetadata));
-    if (regexMetadataChanged) {
-      if (!user) throw new ForbiddenException('User context is required to update regex metadata');
-      await this.verifyUserAccess(user.id, id, user.isSuperuser);
-      await this.regexMetadata.validate(dto.regexMetadata);
-    }
+    if (regexMetadataChanged) await this.regexMetadata.validate(dto.regexMetadata);
 
     const existingOrganizationMode = normalizeOrganizationMode(existing.organizationMode);
     if (dto.organizationMode !== undefined && dto.organizationMode !== existingOrganizationMode) {

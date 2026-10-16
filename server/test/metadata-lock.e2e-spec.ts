@@ -77,7 +77,7 @@ describe('metadata-lock e2e', { timeout: 30_000 }, () => {
         headers: authHeader(ctx.adminToken),
         payload: { libraryId: library.libraryId, config, relativePath: relPath },
       });
-      expect(preview.statusCode).toBe(201);
+      expect(preview.statusCode).toBe(200);
       expect(preview.json()).toMatchObject({ inputPath: 'My.Series/08 - File.Name', metadata: { seriesName: 'My.Series' } });
       await fullScan();
       const located = await locateBookFileByRelPath(ctx, library.libraryId, relPath);

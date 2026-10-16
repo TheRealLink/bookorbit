@@ -171,7 +171,7 @@ function makeService(
   const notificationService = { notify: vi.fn().mockResolvedValue(undefined) };
   const achievementEvents = { emit: vi.fn() };
   const selfWriteRegistry = new SelfWriteRegistry();
-  const regexMetadata = { preview: vi.fn() };
+  const regexMetadata = { evaluate: vi.fn() };
   const service = new ScannerService(
     repo as any,
     mockMetadata as any,
@@ -4419,10 +4419,10 @@ describe('regex metadata scan integration', () => {
     const repo = regexRepo();
     const done = awaitScan(repo);
     const { service, regexMetadata } = makeService(repo);
-    regexMetadata.preview.mockResolvedValue({ matched: true, metadata: { seriesName: 'Book' }, diagnostics: [] });
+    regexMetadata.evaluate.mockResolvedValue({ matched: true, metadata: { seriesName: 'Book' }, diagnostics: [] });
     await service.startScan(1, 'manual');
     await done;
-    expect(regexMetadata.preview).toHaveBeenCalledWith(regexConfig, 'Author/Book/book.epub');
+    expect(regexMetadata.evaluate).toHaveBeenCalledWith(regexConfig, 'Author/Book/book.epub');
     expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenCalledWith(
       1,
       [{ key: 'embedded', absolutePath: '/library/Author/Book/book.epub', format: 'epub' }],
@@ -4460,10 +4460,10 @@ describe('regex metadata scan integration', () => {
     });
     const done = awaitScan(repo);
     const { service, regexMetadata } = makeService(repo);
-    regexMetadata.preview.mockResolvedValue({ matched: true, metadata: { title: 'renamed' }, diagnostics: [] });
+    regexMetadata.evaluate.mockResolvedValue({ matched: true, metadata: { title: 'renamed' }, diagnostics: [] });
     await service.startScan(1, 'manual', true);
     await done;
-    expect(regexMetadata.preview).toHaveBeenCalledWith(regexConfig, file.relPath);
+    expect(regexMetadata.evaluate).toHaveBeenCalledWith(regexConfig, file.relPath);
     expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenCalledWith(1, expect.any(Array), { title: 'renamed' }, ['regex', 'embedded']);
     expect(repo.failScanJob).not.toHaveBeenCalled();
   });
@@ -4485,7 +4485,7 @@ describe('regex metadata scan integration', () => {
     if (suppressed) selfWriteRegistry.begin([file.absolutePath]);
     await service.startScan(1, 'manual', true);
     await done;
-    expect(regexMetadata.preview).toHaveBeenCalledTimes(suppressed ? 0 : 1);
+    expect(regexMetadata.evaluate).toHaveBeenCalledTimes(suppressed ? 0 : 1);
     selfWriteRegistry.end([file.absolutePath]);
     expect(repo.failScanJob).not.toHaveBeenCalled();
   });
@@ -4508,7 +4508,7 @@ describe('regex metadata scan integration', () => {
       .mockResolvedValueOnce({ id: 2, status: 'present', folderPath: '/library/Author/Other' });
     const done = awaitScan(repo);
     const { service, regexMetadata } = makeService(repo);
-    regexMetadata.preview.mockResolvedValue({ matched: true, metadata: { title: 'Regex title' }, diagnostics: [] });
+    regexMetadata.evaluate.mockResolvedValue({ matched: true, metadata: { title: 'Regex title' }, diagnostics: [] });
     mockMetadata.extractAndSaveWithRegex.mockRejectedValueOnce(new Error(message));
     await service.startScan(1, 'manual');
     await done;
@@ -4535,7 +4535,7 @@ describe('regex metadata scan integration', () => {
     const repo = regexRepo();
     const done = awaitScan(repo);
     const { service, regexMetadata } = makeService(repo);
-    regexMetadata.preview.mockRejectedValue(new Error('worker unavailable'));
+    regexMetadata.evaluate.mockRejectedValue(new Error('worker unavailable'));
     await service.startScan(1, 'manual');
     await done;
     expect(mockMetadata.extractAndSaveWithRegex).not.toHaveBeenCalled();
@@ -4558,30 +4558,130 @@ describe('regex metadata scan integration', () => {
     const { service, regexMetadata } = makeService(repo);
     await service.startScan(1, 'manual', true);
     await done;
-    expect(regexMetadata.preview).not.toHaveBeenCalled();
+    expect(regexMetadata.evaluate).not.toHaveBeenCalled();
     expect(mockMetadata.extractAndSaveWithRegex).not.toHaveBeenCalled();
     expect(mockMetadata.extractAndSave).not.toHaveBeenCalled();
   });
 
-  it('falls back after a timeout and skips regex for the rest of the scan', async () => {
-    mockFindCandidates.mockResolvedValue({
-      candidates: [
-        makeCandidate('/library/Author/Book', [makeFileStat()]),
-        makeCandidate('/library/Author/Other', [
-          makeFileStat({ absolutePath: '/library/Author/Other/book.epub', relPath: 'Author/Other/book.epub', ino: 2002n }),
-        ]),
-      ],
-      skippedDirs: new Set(),
-      unchangedDirs: new Set(),
-      dirMtimes: new Map(),
-    });
+  function candidatesFor(count: number) {
+    return Array.from({ length: count }, (_, index) =>
+      makeCandidate(`/library/Author/Book${index}`, [
+        makeFileStat({ absolutePath: `/library/Author/Book${index}/book.epub`, relPath: `Author/Book${index}/book.epub`, ino: BigInt(3000 + index) }),
+      ]),
+    );
+  }
+
+  it('falls back per book after a pool failure and skips regex once failures reach the limit', async () => {
+    mockFindCandidates.mockResolvedValue({ candidates: candidatesFor(4), skippedDirs: new Set(), unchangedDirs: new Set(), dirMtimes: new Map() });
     const repo = regexRepo();
+    for (let index = 0; index < 4; index++)
+      repo.createBook.mockResolvedValueOnce({ id: index + 1, status: 'present', folderPath: `/library/Author/Book${index}` });
     const done = awaitScan(repo);
     const { service, regexMetadata } = makeService(repo);
-    regexMetadata.preview.mockResolvedValue({ matched: false, metadata: {}, diagnostics: [{ code: 'timeout' }] });
+    regexMetadata.evaluate.mockResolvedValue({ matched: false, metadata: {}, diagnostics: [{ code: 'timeout' }] });
     await service.startScan(1, 'manual');
     await done;
-    expect(regexMetadata.preview).toHaveBeenCalledTimes(1);
+    expect(regexMetadata.evaluate).toHaveBeenCalledTimes(3);
+    expect(mockMetadata.extractAndSave).toHaveBeenCalledTimes(4);
+    expect(mockMetadata.extractAndSaveWithRegex).not.toHaveBeenCalled();
+  });
+
+  it('keeps applying regex to later books after one book hits a pool failure', async () => {
+    mockFindCandidates.mockResolvedValue({ candidates: candidatesFor(2), skippedDirs: new Set(), unchangedDirs: new Set(), dirMtimes: new Map() });
+    const repo = regexRepo();
+    repo.createBook
+      .mockResolvedValueOnce({ id: 1, status: 'present', folderPath: '/library/Author/Book0' })
+      .mockResolvedValueOnce({ id: 2, status: 'present', folderPath: '/library/Author/Book1' });
+    const done = awaitScan(repo);
+    const { service, regexMetadata } = makeService(repo);
+    regexMetadata.evaluate
+      .mockResolvedValueOnce({ matched: false, metadata: {}, diagnostics: [{ code: 'busy' }] })
+      .mockResolvedValueOnce({ matched: true, metadata: { seriesName: 'Book1' }, diagnostics: [] });
+    await service.startScan(1, 'manual');
+    await done;
+    expect(mockMetadata.extractAndSave).toHaveBeenCalledTimes(1);
+    expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenCalledWith(2, expect.any(Array), { seriesName: 'Book1' }, [
+      'regex',
+      'embedded',
+      'opfFile',
+    ]);
+  });
+
+  it('skips regex for the rest of the scan as soon as the rules themselves fail', async () => {
+    mockFindCandidates.mockResolvedValue({ candidates: candidatesFor(2), skippedDirs: new Set(), unchangedDirs: new Set(), dirMtimes: new Map() });
+    const repo = regexRepo();
+    repo.createBook
+      .mockResolvedValueOnce({ id: 1, status: 'present', folderPath: '/library/Author/Book0' })
+      .mockResolvedValueOnce({ id: 2, status: 'present', folderPath: '/library/Author/Book1' });
+    const done = awaitScan(repo);
+    const { service, regexMetadata } = makeService(repo);
+    regexMetadata.evaluate.mockResolvedValue({ matched: false, metadata: {}, diagnostics: [{ code: 'invalid_pattern', ruleIndex: 0 }] });
+    await service.startScan(1, 'manual');
+    await done;
+    expect(regexMetadata.evaluate).toHaveBeenCalledTimes(1);
     expect(mockMetadata.extractAndSave).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('regex metadata outside a scan', () => {
+  const regexConfig = { rules: [{ pattern: '^(?<series>[^/]+)/', flags: '' }] };
+  const book = { id: 7, libraryId: 1, primaryFileId: 11, status: 'present', folderPath: '/library/Series/Book' };
+  const primary = {
+    id: 11,
+    bookId: 7,
+    format: 'epub',
+    role: 'content',
+    absolutePath: '/library/Series/Book/book.epub',
+    relPath: 'Series/Book/book.epub',
+    sizeBytes: 10,
+    durationSeconds: null,
+    mediaOverlayAvailable: false,
+    sortOrder: 0,
+  };
+  function rulesRepo(regexMetadata: unknown) {
+    return makeRepo({
+      findBookById: vi.fn().mockResolvedValue(book),
+      findBookFilesByBookId: vi.fn().mockResolvedValue([primary]),
+      findLibrarySettings: vi.fn().mockResolvedValue({ metadataPrecedence: ['regex', 'embedded'], regexMetadata }),
+    });
+  }
+
+  it('leaves books in libraries without rules to the caller', async () => {
+    const repo = rulesRepo(null);
+    const { service, regexMetadata } = makeService(repo);
+    await expect(service.extractMetadataWithLibraryRules(7)).resolves.toBe(false);
+    expect(repo.findBookFilesByBookId).not.toHaveBeenCalled();
+    expect(regexMetadata.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('applies the rules to the primary file path with the library precedence', async () => {
+    const { service, regexMetadata } = makeService(rulesRepo(regexConfig));
+    regexMetadata.evaluate.mockResolvedValue({ matched: true, metadata: { seriesName: 'Series' }, diagnostics: [] });
+    await expect(service.extractMetadataWithLibraryRules(7)).resolves.toBe(true);
+    expect(regexMetadata.evaluate).toHaveBeenCalledWith(regexConfig, 'Series/Book/book.epub');
+    expect(mockMetadata.extractAndSaveWithRegex).toHaveBeenCalledWith(
+      7,
+      [{ key: 'embedded', absolutePath: '/library/Series/Book/book.epub', format: 'epub' }],
+      { seriesName: 'Series' },
+      ['regex', 'embedded'],
+    );
+    expect(mockMetadata.extractAndSave).not.toHaveBeenCalled();
+  });
+
+  it('falls back to file metadata when no rule matches the path', async () => {
+    const { service, regexMetadata } = makeService(rulesRepo(regexConfig));
+    regexMetadata.evaluate.mockResolvedValue({ matched: false, metadata: {}, diagnostics: [] });
+    await expect(service.extractMetadataWithLibraryRules(7)).resolves.toBe(true);
+    expect(mockMetadata.extractAndSaveWithRegex).not.toHaveBeenCalled();
+    expect(mockMetadata.extractAndSave).toHaveBeenCalledWith(7, '/library/Series/Book/book.epub', 'epub');
+  });
+
+  it('does not read a book this instance is writing', async () => {
+    const { service, regexMetadata, selfWriteRegistry } = makeService(rulesRepo(regexConfig));
+    selfWriteRegistry.begin([primary.absolutePath]);
+    await expect(service.extractMetadataWithLibraryRules(7)).resolves.toBe(true);
+    selfWriteRegistry.end([primary.absolutePath]);
+    expect(regexMetadata.evaluate).not.toHaveBeenCalled();
+    expect(mockMetadata.extractAndSave).not.toHaveBeenCalled();
   });
 });

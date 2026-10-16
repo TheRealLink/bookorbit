@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ServiceUnavailableException } from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RegexMetadataService } from './regex-metadata.service';
 import { prepareRegexMetadataPath } from './regex-metadata-path';
 import { mergeRegexMetadata } from './merge-regex-metadata';
@@ -47,6 +48,15 @@ describe('RegexMetadataService', () => {
     expect(result.metadata).toEqual({ authors: ['Änne'], seriesName: 'Dr. Who', seriesIndex: '08', title: 'My.Book' });
   });
 
+  it.each([
+    ['decomposed path, composed rule', 'A\u0308nne/Book.epub', '^(?<author>Änne)/'],
+    ['composed path, decomposed rule', 'Änne/Book.epub', '^(?<author>A\u0308nne)/'],
+  ])('matches across Unicode normalization forms: %s', async (_label, path, pattern) => {
+    const result = await service.preview({ rules: [{ pattern, flags: 'u' }] }, path);
+    expect(result.metadata.authors).toEqual(['Änne']);
+    expect(result.inputPath).toBe('Änne/Book');
+  });
+
   it('skips unusable matches and selects only the first usable rule', async () => {
     const result = await service.preview(
       {
@@ -75,6 +85,21 @@ describe('RegexMetadataService', () => {
     const result = await service.preview({ rules: [{ pattern: '^(?<title>[^/]+)/(?<publishedDate>.+)$', flags: '' }] }, 'Book/2023-02-29.epub');
     expect(result.metadata).toEqual({ title: 'Book' });
     expect(result.diagnostics[0].code).toBe('invalid_value');
+  });
+
+  it.each([
+    ['08', '08'],
+    ['1.5', '1.5'],
+    ['1,5', '1.5'],
+  ])('keeps series index %s as %s', async (captured, expected) => {
+    const result = await service.preview({ rules: [{ pattern: '^(?<title>[^/]+)/(?<seriesIndex>.+)$', flags: '' }] }, `Book/${captured}.epub`);
+    expect(result.metadata).toEqual({ title: 'Book', seriesIndex: expected });
+  });
+
+  it.each(['IV', '2a', '1-2', '1,5,2', '.5'])('skips series index %s that the column would reject', async (captured) => {
+    const result = await service.preview({ rules: [{ pattern: '^(?<title>[^/]+)/(?<seriesIndex>.+)$', flags: '' }] }, `Book/${captured}.epub`);
+    expect(result.metadata).toEqual({ title: 'Book' });
+    expect(result.diagnostics).toEqual([{ code: 'invalid_value', ruleIndex: 0, field: 'seriesIndex' }]);
   });
 
   it.each([
@@ -108,6 +133,25 @@ describe('RegexMetadataService', () => {
     const results = await Promise.all(tasks);
     expect(results.some((result) => result.diagnostics[0]?.code === 'busy')).toBe(true);
     expect(results.every((result) => result.diagnostics.length > 0)).toBe(true);
+  });
+
+  it('never refuses scanner evaluation for a full queue', async () => {
+    const config = { rules: [{ pattern: '^(?<title>.+)$', flags: '' }] };
+    const results = await Promise.all(Array.from({ length: 40 }, () => service.evaluate(config, 'Book.epub')));
+    expect(results.every((result) => result.metadata.title === 'Book')).toBe(true);
+  });
+
+  it('retries a pool failure once before reporting it', async () => {
+    const config = { rules: [{ pattern: '^(?<title>.+)$', flags: '' }] };
+    const run = vi.spyOn(service as any, 'run').mockResolvedValueOnce({ diagnostics: [{ code: 'timeout' }] });
+    const result = await service.evaluate(config, 'Book.epub');
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(result.metadata).toEqual({ title: 'Book' });
+  });
+
+  it('reports a pool failure on save as unavailable rather than invalid rules', async () => {
+    vi.spyOn(service as any, 'run').mockResolvedValue({ diagnostics: [{ code: 'worker_failed' }] });
+    await expect(service.validate({ rules: [{ pattern: '(?<title>.+)', flags: '' }] })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('rejects excessive rules, pattern length, and stateful flags', async () => {

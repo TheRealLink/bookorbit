@@ -1,4 +1,4 @@
-import { RegexMetadataService } from '../metadata/regex/regex-metadata.service';
+import { isTransientRegexFailure, RegexMetadataService } from '../metadata/regex/regex-metadata.service';
 import type { RegexMetadataConfig, RegexMetadataPreview } from '@bookorbit/types';
 import { ConflictException, Injectable, Logger, NotFoundException, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
@@ -93,6 +93,14 @@ interface ScanLookupMaps {
 interface RegexScanContext {
   config: RegexMetadataConfig | null;
   disabled: boolean;
+  /** Books whose rules could not run even after a retry; past the limit the rest of the scan skips regex. */
+  failures: number;
+}
+
+const REGEX_SCAN_FAILURE_LIMIT = 3;
+
+function createRegexScanContext(config: RegexMetadataConfig | null | undefined): RegexScanContext {
+  return { config: config ?? null, disabled: false, failures: 0 };
 }
 
 interface LibraryScanSettings {
@@ -715,7 +723,7 @@ export class ScannerService implements OnApplicationBootstrap {
       const allowedFormats = settings?.allowedFormats ?? [];
       const formatPriority = settings?.formatPriority ?? DEFAULT_FORMAT_PRIORITY;
       const metadataPrecedence = settings?.metadataPrecedence ?? [...LIBRARY_METADATA_PRECEDENCE_DEFAULT];
-      const regexContext: RegexScanContext = { config: settings?.regexMetadata ?? null, disabled: false };
+      const regexContext = createRegexScanContext(settings?.regexMetadata);
       const excludePatterns = settings?.excludePatterns ?? [];
       const organizationMode = normalizeOrganizationMode(settings?.organizationMode);
       const addedAtSource = normalizeAddedAtSource(settings?.addedAtSource);
@@ -965,7 +973,7 @@ export class ScannerService implements OnApplicationBootstrap {
 
     const rawSettings = await this.scannerRepo.findLibrarySettings(libraryId);
     const settings: LibraryScanSettings = {
-      regexContext: { config: rawSettings?.regexMetadata ?? null, disabled: false },
+      regexContext: createRegexScanContext(rawSettings?.regexMetadata),
       allowedFormats: rawSettings?.allowedFormats ?? [],
       formatPriority: rawSettings?.formatPriority ?? DEFAULT_FORMAT_PRIORITY,
       metadataPrecedence: rawSettings?.metadataPrecedence ?? [...LIBRARY_METADATA_PRECEDENCE_DEFAULT],
@@ -1009,7 +1017,7 @@ export class ScannerService implements OnApplicationBootstrap {
 
     const rawSettings = await this.scannerRepo.findLibrarySettings(libraryId);
     const settings: LibraryScanSettings = {
-      regexContext: { config: rawSettings?.regexMetadata ?? null, disabled: false },
+      regexContext: createRegexScanContext(rawSettings?.regexMetadata),
       allowedFormats: rawSettings?.allowedFormats ?? [],
       formatPriority: rawSettings?.formatPriority ?? DEFAULT_FORMAT_PRIORITY,
       metadataPrecedence: rawSettings?.metadataPrecedence ?? [...LIBRARY_METADATA_PRECEDENCE_DEFAULT],
@@ -2082,6 +2090,60 @@ export class ScannerService implements OnApplicationBootstrap {
     return { bookId: book.id, ...counts, retainedFileIds, becameVisible, created: book.created, coverBookIds };
   }
 
+  /**
+   * Shared metadata extraction for one book outside a scan, honouring its library's regex rules.
+   * An upload registers its own file and the watcher records a move's new path itself, so no later
+   * scan sees anything to re-read. Resolves false when the library has no rules, leaving the
+   * caller's plain file extraction in charge.
+   */
+  async extractMetadataWithLibraryRules(bookId: number): Promise<boolean> {
+    const book = await this.scannerRepo.findBookById(bookId);
+    if (!book) return false;
+    const settings = await this.scannerRepo.findLibrarySettings(book.libraryId);
+    if (!settings?.regexMetadata) return false;
+    const files = await this.scannerRepo.findBookFilesByBookId(bookId);
+    if (files.some((file) => this.selfWriteRegistry.isSuppressed(file.absolutePath))) return true;
+
+    const registered: RegisteredFile[] = files.map((file) => ({
+      fileId: file.id,
+      format: file.format,
+      role: file.role as FileRole,
+      absolutePath: file.absolutePath,
+      sizeBytes: file.sizeBytes ?? 0,
+      durationSeconds: file.durationSeconds,
+      isNew: false,
+      wasReassigned: false,
+      wasChanged: false,
+      wasPathChanged: false,
+      mediaOverlayAvailable: file.mediaOverlayAvailable,
+      previousSortOrder: file.sortOrder,
+    }));
+    const winner = registered.find((file) => file.fileId === book.primaryFileId) ?? null;
+    const relativePath = files.find((file) => file.id === book.primaryFileId)?.relPath ?? undefined;
+    const precedence = settings.metadataPrecedence ?? [...LIBRARY_METADATA_PRECEDENCE_DEFAULT];
+    const sources = this.buildMetadataExtractionSources(registered, winner, precedence);
+    const context = createRegexScanContext(settings.regexMetadata);
+    const regexApplied = await this.extractRegexMetadata(book.id, book.libraryId, relativePath, sources, precedence, context);
+    if (!regexApplied) await this.extractFirstAvailableMetadataSource(book.id, sources);
+    return true;
+  }
+
+  /** Re-applies regex rules after the watcher moved these books' files; books in libraries without rules are left alone. */
+  refreshRegexMetadataAfterMoveAsync(bookIds: number[]): void {
+    void (async () => {
+      for (const bookId of bookIds) {
+        const startedAt = Date.now();
+        try {
+          await this.extractMetadataWithLibraryRules(bookId);
+        } catch (error) {
+          this.logger.warn(
+            `[scanner.regex_metadata_after_move] [fail] bookId=${bookId} durationMs=${Date.now() - startedAt} errorClass=${error instanceof Error ? error.name : 'Error'} error="${sanitizeLogValue(error instanceof Error ? error.message : String(error))}" - regex metadata refresh after move failed`,
+          );
+        }
+      }
+    })();
+  }
+
   private async extractRegexMetadata(
     bookId: number,
     libraryId: number,
@@ -2094,11 +2156,15 @@ export class ScannerService implements OnApplicationBootstrap {
     const startedAt = Date.now();
     let result: RegexMetadataPreview;
     try {
-      result = await this.regexMetadata.preview(context.config, relativePath);
-      if (result.diagnostics.some((entry) => entry.code !== 'invalid_value')) {
-        context.disabled = true;
+      result = await this.regexMetadata.evaluate(context.config, relativePath);
+      const failure = result.diagnostics.find((entry) => entry.code !== 'invalid_value');
+      if (failure) {
+        // Rules that cannot compile fail every book at once; a pool failure that outlived a retry may be this book alone.
+        const transient = isTransientRegexFailure(failure.code);
+        if (transient) context.failures++;
+        if (!transient || context.failures >= REGEX_SCAN_FAILURE_LIMIT) context.disabled = true;
         this.logger.warn(
-          `[scanner.regex_metadata] [fail] libraryId=${libraryId} bookId=${bookId} durationMs=${Date.now() - startedAt} errorClass=RegexEvaluationError error="${sanitizeLogValue(result.diagnostics[0].code)}" - regex disabled for this scan`,
+          `[scanner.regex_metadata] [fail] libraryId=${libraryId} bookId=${bookId} durationMs=${Date.now() - startedAt} errorClass=RegexEvaluationError error="${sanitizeLogValue(failure.code)}" regexDisabled=${context.disabled} - regex skipped; file metadata used`,
         );
         return false;
       }

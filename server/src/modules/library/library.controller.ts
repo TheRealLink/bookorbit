@@ -50,15 +50,17 @@ export class LibraryController {
   }
 
   @Post('regex-metadata/validate')
+  @HttpCode(HttpStatus.OK)
   @RequirePermission(Permission.ManageLibraries)
-  validateRegexMetadata(@Body() dto: RegexMetadataValidationDto, @CurrentUser() user: RequestUser) {
-    return this.libraryService.validateRegexMetadata(dto, user);
+  validateRegexMetadata(@Body() dto: RegexMetadataValidationDto) {
+    return this.libraryService.validateRegexMetadata(dto);
   }
 
   @Post('regex-metadata/preview')
+  @HttpCode(HttpStatus.OK)
   @RequirePermission(Permission.ManageLibraries)
-  previewRegexMetadata(@Body() dto: RegexMetadataPreviewDto, @CurrentUser() user: RequestUser) {
-    return this.libraryService.previewRegexMetadata(dto, user);
+  previewRegexMetadata(@Body() dto: RegexMetadataPreviewDto) {
+    return this.libraryService.previewRegexMetadata(dto);
   }
 
   @Get(':id')
@@ -105,8 +107,8 @@ export class LibraryController {
     getResourceId: (req) => parseInt(req.params['id'] as string, 10),
     description: (req) => `Updated library #${req.params['id']}`,
   })
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateLibraryDto, @CurrentUser() user: RequestUser) {
-    return this.libraryService.update(id, dto, user);
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateLibraryDto) {
+    return this.libraryService.update(id, dto);
   }
 
   @Delete(':id')

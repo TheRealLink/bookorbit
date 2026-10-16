@@ -207,15 +207,12 @@ describe('LibraryService', () => {
     await expect(service.findOne(111)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('rejects regex validation for podcast libraries even for superusers', async () => {
+  it('rejects regex validation for podcast libraries', async () => {
     libraryRepo.findById.mockResolvedValue([{ id: 2, type: 'podcasts' }]);
     libraryRepo.findFoldersByLibrary.mockResolvedValue([]);
-    await expect(
-      service.validateRegexMetadata({ config: { rules: [{ pattern: '(?<title>.+)', flags: '' }] }, libraryId: 2 }, {
-        id: 1,
-        isSuperuser: true,
-      } as any),
-    ).rejects.toThrow('Regex metadata is only available for book libraries');
+    await expect(service.validateRegexMetadata({ config: { rules: [{ pattern: '(?<title>.+)', flags: '' }] }, libraryId: 2 })).rejects.toThrow(
+      'Regex metadata is only available for book libraries',
+    );
   });
 
   describe('regex configuration updates', () => {
@@ -229,14 +226,10 @@ describe('LibraryService', () => {
     });
 
     it.each([null, { rules: [{ flags: 'i', pattern: first.pattern }, second] }])(
-      'does not require a grant or rewrite unchanged rules: %j',
+      'does not revalidate or rewrite unchanged rules: %j',
       async (unchanged) => {
         libraryRepo.findById.mockResolvedValue([{ id: 2, type: 'books', icon: 'BookOpen', regexMetadata: unchanged === null ? null : config }]);
-        await service.update(2, plainToInstance(UpdateLibraryDto, { coverAspectRatio: '1/1', regexMetadata: unchanged }), {
-          id: 3,
-          isSuperuser: false,
-        } as any);
-        expect(libraryRepo.hasUserAccess).not.toHaveBeenCalled();
+        await service.update(2, plainToInstance(UpdateLibraryDto, { coverAspectRatio: '1/1', regexMetadata: unchanged }));
         expect(regexMetadata.validate).not.toHaveBeenCalled();
         expect(libraryRepo.update).toHaveBeenCalledWith(2, { coverAspectRatio: '1/1' });
       },
@@ -247,23 +240,16 @@ describe('LibraryService', () => {
       { rules: [second, first] },
       { rules: [{ ...first, flags: 'u' }, second] },
       { rules: [{ ...first, pattern: '(?<title>.*)' }, second] },
-    ])('requires a grant for actual changes: %j', async (changed) => {
-      libraryRepo.hasUserAccess.mockResolvedValue(false);
-      await expect(service.update(2, { regexMetadata: changed }, { id: 3, isSuperuser: false } as any)).rejects.toThrow(ForbiddenException);
-      expect(libraryRepo.update).not.toHaveBeenCalled();
-      expect(regexMetadata.validate).not.toHaveBeenCalled();
+    ])('validates and persists an actual change without a library grant: %j', async (changed) => {
+      await service.update(2, { regexMetadata: changed });
+      expect(libraryRepo.hasUserAccess).not.toHaveBeenCalled();
+      expect(regexMetadata.validate).toHaveBeenCalledWith(changed);
+      expect(libraryRepo.update).toHaveBeenCalledWith(2, { regexMetadata: changed });
     });
 
-    it.each([false, true])('validates and persists an authorized change (superuser=%s)', async (isSuperuser) => {
-      libraryRepo.hasUserAccess.mockResolvedValue(true);
-      await service.update(2, { regexMetadata: null }, { id: 3, isSuperuser } as any);
-      expect(regexMetadata.validate).toHaveBeenCalledWith(null);
-      expect(libraryRepo.update).toHaveBeenCalledWith(2, { regexMetadata: null });
-      if (isSuperuser) expect(libraryRepo.hasUserAccess).not.toHaveBeenCalled();
-    });
-
-    it('rejects changed configuration without caller context', async () => {
-      await expect(service.update(2, { regexMetadata: null })).rejects.toThrow(ForbiddenException);
+    it('does not persist a change that fails validation', async () => {
+      regexMetadata.validate.mockRejectedValueOnce(new BadRequestException('Invalid regex metadata configuration'));
+      await expect(service.update(2, { regexMetadata: null })).rejects.toThrow('Invalid regex metadata configuration');
       expect(libraryRepo.update).not.toHaveBeenCalled();
     });
   });

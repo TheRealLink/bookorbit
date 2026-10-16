@@ -9654,6 +9654,7 @@
           "sourceTitle": "Regex",
           "description": "Extract metadata from the primary file path relative to its library folder. The file extension is removed before matching. The first rule with usable fields wins.",
           "enable": "Enable regex metadata",
+          "primaryFileHint": "For a book made of several files, such as audiobook tracks, the rules read the primary file's path.",
           "groups": "Named groups:",
           "valuesHint": "Use author for one author or authors separated by semicolons. Dates use YYYY-MM-DD. Flags: i ignores case, u enables Unicode.",
           "rules": "Ordered extraction rules",
@@ -9673,7 +9674,7 @@
           "validationSuccess": "Rule syntax and groups are valid. Use the preview to check matches for a file path.",
           "validationError": "Could not validate the rules. Try again before applying them.",
           "validationRetry": "Check again",
-          "validationRuleCount": "Add between 1 and 20 rules.",
+          "validationRuleCount": "Add between {min} and {max} rules.",
           "preview": "Preview",
           "previewing": "Testing rules…",
           "previewError": "Could not preview the rules. Check the relative path and configuration, then try again.",
@@ -9689,7 +9690,7 @@
           "moveSourceDown": "Move {source} down",
           "diagnostics": {
             "pattern_required": "Enter a regular expression.",
-            "pattern_too_long": "The expression must not exceed 2,048 characters.",
+            "pattern_too_long": "The expression must not exceed {count} characters.",
             "invalid_flags": "Only i and u are allowed, each at most once.",
             "invalid_pattern": "Invalid regular expression.",
             "missing_group": "Include at least one supported named group.",
@@ -9700,7 +9701,15 @@
             "worker_failed": "The expression could not be evaluated. Try again."
           },
           "precedenceHint": "The first available file source supplies metadata. Regex fields follow this order and missing values are filled from the other source.",
-          "summary": "{format} first, regex metadata preferred"
+          "summary": "{format} first, regex metadata preferred",
+          "fields": {
+            "title": "Title",
+            "authors": "Authors",
+            "series": "Series",
+            "seriesIndex": "Series number",
+            "publishedYear": "Published year",
+            "publishedDate": "Published date"
+          }
         }
       },
       "fileWrite": {

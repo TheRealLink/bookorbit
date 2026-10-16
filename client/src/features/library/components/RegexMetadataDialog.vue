@@ -5,6 +5,8 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from '@lucide/vue'
 import { REGEX_METADATA_GROUPS, REGEX_METADATA_LIMITS, type RegexMetadataConfig } from '@bookorbit/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import { formatNumber } from '@/i18n/formatters'
 import { useRegexMetadataEditor } from '../composables/useRegexMetadataEditor'
 
 const props = defineProps<{ config: RegexMetadataConfig | null; libraryId?: number }>()
@@ -38,6 +40,29 @@ const {
 const examplePattern = String.raw`(?<author>[^\/]+)\/(?<series>[^\/]+)\/(?<seriesIndex>\d+) - (?<title>.+) - \k<author>`
 const examplePath = 'Donna Leon/Commissario Brunetti/01 - Venezianisches Finale - Donna Leon.epub'
 
+const FIELD_LABEL_KEYS: Record<string, string> = {
+  title: 'title',
+  author: 'authors',
+  authors: 'authors',
+  series: 'series',
+  seriesName: 'series',
+  seriesIndex: 'seriesIndex',
+  publishedYear: 'publishedYear',
+  publishedDate: 'publishedDate',
+}
+const diagnosticParams = {
+  count: formatNumber(REGEX_METADATA_LIMITS.patternLength),
+  min: formatNumber(1),
+  max: formatNumber(REGEX_METADATA_LIMITS.rules),
+}
+
+function fieldLabel(field: string) {
+  const key = FIELD_LABEL_KEYS[field]
+  return key ? t(`library.creator.metadata.regex.fields.${key}`) : field
+}
+function diagnosticMessage(code: string) {
+  return t(`library.creator.metadata.regex.diagnostics.${code}`, diagnosticParams)
+}
 function close() {
   emit('close')
 }
@@ -58,10 +83,11 @@ function apply() {
       >
         <DialogTitle class="text-lg font-semibold">{{ t('library.creator.metadata.regex.title') }}</DialogTitle>
         <DialogDescription class="text-sm text-muted-foreground">{{ t('library.creator.metadata.regex.description') }}</DialogDescription>
-        <label class="flex items-center gap-2 text-sm font-medium">
-          <input v-model="enabled" type="checkbox" class="accent-primary" />
-          {{ t('library.creator.metadata.regex.enable') }}
-        </label>
+        <p class="text-xs text-muted-foreground">{{ t('library.creator.metadata.regex.primaryFileHint') }}</p>
+        <div class="flex items-center gap-2 text-sm font-medium">
+          <ToggleSwitch v-model="enabled" aria-labelledby="regex-enable-label" />
+          <span id="regex-enable-label">{{ t('library.creator.metadata.regex.enable') }}</span>
+        </div>
         <p class="text-xs text-muted-foreground">
           {{ t('library.creator.metadata.regex.groups') }} <code>{{ REGEX_METADATA_GROUPS.join(', ') }}</code>
         </p>
@@ -77,12 +103,12 @@ function apply() {
           </dl>
         </section>
 
-        <fieldset :disabled="!enabled" class="flex min-w-0 flex-col gap-3 disabled:opacity-50">
+        <fieldset v-if="enabled" class="flex min-w-0 flex-col gap-3">
           <legend class="sr-only">{{ t('library.creator.metadata.regex.rules') }}</legend>
           <div v-for="(rule, index) in rules" :key="index" class="flex min-w-0 flex-col gap-2 rounded-md border border-border p-3">
             <div class="flex items-center justify-between gap-2">
               <label :for="`regex-pattern-${index}`" class="text-sm font-medium">{{
-                t('library.creator.metadata.regex.rule', { number: index + 1 })
+                t('library.creator.metadata.regex.rule', { number: formatNumber(index + 1) })
               }}</label>
               <div class="flex gap-1">
                 <Button
@@ -142,7 +168,7 @@ function apply() {
             </label>
             <div :id="`regex-errors-${index}`" aria-live="polite">
               <p v-for="code in ruleErrors[index]" :key="code" class="text-xs text-destructive">
-                {{ t(`library.creator.metadata.regex.diagnostics.${code}`) }}
+                {{ diagnosticMessage(code) }}
               </p>
             </div>
           </div>
@@ -163,12 +189,12 @@ function apply() {
         </fieldset>
 
         <div v-if="enabled" aria-live="polite" class="flex flex-col gap-2 text-sm">
-          <p v-if="!validRuleCount" class="text-destructive">{{ t('library.creator.metadata.regex.validationRuleCount') }}</p>
+          <p v-if="!validRuleCount" class="text-destructive">{{ t('library.creator.metadata.regex.validationRuleCount', diagnosticParams) }}</p>
           <p v-else-if="validating" class="text-muted-foreground">{{ t('library.creator.metadata.regex.validating') }}</p>
           <p v-else-if="validation?.valid" class="text-muted-foreground">{{ t('library.creator.metadata.regex.validationSuccess') }}</p>
           <p v-if="validationError" role="alert" class="text-destructive">{{ t('library.creator.metadata.regex.validationError') }}</p>
           <p v-for="diagnostic in generalDiagnostics" :key="diagnostic.code" class="text-destructive">
-            {{ t(`library.creator.metadata.regex.diagnostics.${diagnostic.code}`) }}
+            {{ diagnosticMessage(diagnostic.code) }}
           </p>
           <Button
             v-if="validationError || generalDiagnostics.length"
@@ -188,18 +214,18 @@ function apply() {
           <p>
             {{
               result.matched
-                ? t('library.creator.metadata.regex.matched', { number: (result.ruleIndex ?? 0) + 1 })
+                ? t('library.creator.metadata.regex.matched', { number: formatNumber((result.ruleIndex ?? 0) + 1) })
                 : t('library.creator.metadata.regex.noMatch')
             }}
           </p>
           <dl v-if="result.matched" class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
             <template v-for="(fieldValue, field) in result.metadata" :key="field"
-              ><dt class="font-mono text-xs">{{ field }}</dt>
+              ><dt class="text-xs text-muted-foreground">{{ fieldLabel(field) }}</dt>
               <dd class="break-all">{{ Array.isArray(fieldValue) ? fieldValue.join('; ') : fieldValue }}</dd></template
             >
           </dl>
           <p v-for="(diagnostic, index) in result.diagnostics" :key="index" class="text-destructive">
-            {{ t(`library.creator.metadata.regex.diagnostics.${diagnostic.code}`) }} <span v-if="diagnostic.field">({{ diagnostic.field }})</span>
+            {{ diagnosticMessage(diagnostic.code) }} <span v-if="diagnostic.field">({{ fieldLabel(diagnostic.field) }})</span>
           </p>
         </div>
         <p class="text-xs text-muted-foreground">{{ t('library.creator.metadata.regex.scanHint') }}</p>

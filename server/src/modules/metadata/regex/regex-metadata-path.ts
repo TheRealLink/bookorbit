@@ -3,7 +3,8 @@ import { posix, win32 } from 'node:path';
 import { REGEX_METADATA_LIMITS } from '@bookorbit/types';
 
 export function prepareRegexMetadataPath(relativePath: string): string {
-  const path = relativePath.replaceAll('\\', '/');
+  // Filesystems hand back either Unicode form, while typed rules are composed.
+  const path = relativePath.normalize('NFC').replaceAll('\\', '/');
   if (
     !path ||
     path.length > REGEX_METADATA_LIMITS.pathLength ||
