@@ -1,16 +1,20 @@
-import {
-  parseSeriesIndex,
-  REGEX_METADATA_GROUPS,
-  type RegexMetadataConfig,
-  type RegexMetadataDiagnostic,
-  type RegexMetadataFields,
-  type RegexMetadataPreview,
-} from '@bookorbit/types';
+import type { RegexMetadataConfig, RegexMetadataDiagnostic, RegexMetadataFields, RegexMetadataPreview } from '@bookorbit/types';
 import { isPublishedDateKey, parsePublishedYear } from '../../../common/utils/published-date.utils';
 
 export interface RegexMetadataTask {
   config: RegexMetadataConfig;
   inputPath?: string;
+}
+
+/**
+ * Shared-package values the worker needs. A worker thread resolves packages without the aliases the
+ * server process runs under, so it must not import values from @bookorbit/types itself; the
+ * service hands them over when it spawns the worker.
+ */
+export interface RegexMetadataWorkerData {
+  groups: readonly string[];
+  seriesIndexPattern: RegExp;
+  seriesIndexMaxLength: number;
 }
 
 interface CompiledRules {
@@ -22,7 +26,7 @@ interface CompiledRules {
 // A scan sends the same rules for every book, so the worker keeps the last compiled set.
 let lastCompiled: CompiledRules | undefined;
 
-function compileRules(config: RegexMetadataConfig): CompiledRules {
+function compileRules(config: RegexMetadataConfig, shared: RegexMetadataWorkerData): CompiledRules {
   const key = JSON.stringify(config.rules.map(({ pattern, flags }) => [pattern, flags]));
   if (lastCompiled?.key === key) return lastCompiled;
   const compiled: RegExp[] = [];
@@ -33,7 +37,7 @@ function compileRules(config: RegexMetadataConfig): CompiledRules {
       const regex = new RegExp(pattern, rule.flags);
       // The empty first alternative exposes group names without executing the user's pattern.
       const groups = Object.keys(new RegExp(`|(?:${pattern})`, rule.flags).exec('')?.groups ?? {});
-      if (!groups.some((group) => (REGEX_METADATA_GROUPS as readonly string[]).includes(group))) {
+      if (!groups.some((group) => shared.groups.includes(group))) {
         diagnostics.push({ code: 'missing_group', ruleIndex });
       }
       if (groups.includes('author') && groups.includes('authors')) {
@@ -48,8 +52,8 @@ function compileRules(config: RegexMetadataConfig): CompiledRules {
   return lastCompiled;
 }
 
-export function evaluateRegexMetadata({ config, inputPath }: RegexMetadataTask): RegexMetadataPreview {
-  const { compiled, diagnostics } = compileRules(config);
+export function evaluateRegexMetadata({ config, inputPath }: RegexMetadataTask, shared: RegexMetadataWorkerData): RegexMetadataPreview {
+  const { compiled, diagnostics } = compileRules(config, shared);
   const result: RegexMetadataPreview = {
     inputPath: inputPath ?? '',
     matched: false,
@@ -64,14 +68,19 @@ export function evaluateRegexMetadata({ config, inputPath }: RegexMetadataTask):
     const match = regex.exec(inputPath);
     if (!match?.groups) continue;
     const groups = Object.fromEntries(Object.entries(match.groups).filter((entry): entry is [string, string] => entry[1] !== undefined));
-    const metadata = normalizeGroups(groups, ruleIndex, result.diagnostics);
+    const metadata = normalizeGroups(groups, ruleIndex, result.diagnostics, shared);
     if (!Object.keys(metadata).length) continue;
     return { ...result, matched: true, ruleIndex, groups, metadata };
   }
   return result;
 }
 
-function normalizeGroups(groups: Record<string, string>, ruleIndex: number, diagnostics: RegexMetadataDiagnostic[]): RegexMetadataFields {
+function normalizeGroups(
+  groups: Record<string, string>,
+  ruleIndex: number,
+  diagnostics: RegexMetadataDiagnostic[],
+  shared: RegexMetadataWorkerData,
+): RegexMetadataFields {
   const metadata: RegexMetadataFields = {};
   for (const [group, field, limit] of [
     ['title', 'title', 1000],
@@ -85,9 +94,10 @@ function normalizeGroups(groups: Record<string, string>, ruleIndex: number, diag
   const seriesIndex = groups.seriesIndex?.trim();
   if (seriesIndex) {
     // The column only accepts plain decimals; a decimal comma is the one spelling worth repairing.
-    const parsed = parseSeriesIndex(seriesIndex.replace(/^(\d+),(\d+)$/, '$1.$2'));
-    if (parsed === null) diagnostics.push({ code: 'invalid_value', ruleIndex, field: 'seriesIndex' });
-    else metadata.seriesIndex = parsed;
+    const candidate = seriesIndex.replace(/^(\d+),(\d+)$/, '$1.$2');
+    if (candidate.length > shared.seriesIndexMaxLength || !shared.seriesIndexPattern.test(candidate)) {
+      diagnostics.push({ code: 'invalid_value', ruleIndex, field: 'seriesIndex' });
+    } else metadata.seriesIndex = candidate;
   }
   const author = groups.author?.trim();
   const authors = author

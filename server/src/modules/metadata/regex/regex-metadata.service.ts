@@ -3,14 +3,17 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import {
+  REGEX_METADATA_GROUPS,
   REGEX_METADATA_LIMITS,
+  SERIES_INDEX_MAX_LENGTH,
+  SERIES_INDEX_PATTERN,
   type RegexMetadataConfig,
   type RegexMetadataDiagnosticCode,
   type RegexMetadataPreview,
   type RegexMetadataValidation,
 } from '@bookorbit/types';
 import { prepareRegexMetadataPath } from './regex-metadata-path';
-import type { RegexMetadataTask } from './regex-metadata-engine';
+import type { RegexMetadataTask, RegexMetadataWorkerData } from './regex-metadata-engine';
 
 const INTERACTIVE_QUEUE_LIMIT = 32;
 const TRANSIENT_CODES: ReadonlySet<RegexMetadataDiagnosticCode> = new Set(['timeout', 'busy', 'worker_failed']);
@@ -111,7 +114,13 @@ export class RegexMetadataService implements OnModuleDestroy {
   private spawn(): void {
     const jsPath = join(__dirname, 'regex-metadata.worker.js');
     const workerPath = existsSync(jsPath) ? jsPath : join(__dirname, 'regex-metadata.worker.ts');
+    const workerData: RegexMetadataWorkerData = {
+      groups: REGEX_METADATA_GROUPS,
+      seriesIndexPattern: SERIES_INDEX_PATTERN,
+      seriesIndexMaxLength: SERIES_INDEX_MAX_LENGTH,
+    };
     const worker = new Worker(workerPath, {
+      workerData,
       execArgv: workerPath.endsWith('.ts') ? ['--import', 'tsx'] : [],
       resourceLimits: { maxOldGenerationSizeMb: 64 },
     });

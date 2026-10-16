@@ -1,4 +1,6 @@
 import { Test } from '@nestjs/testing';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RegexMetadataService } from './regex-metadata.service';
@@ -161,6 +163,14 @@ describe('RegexMetadataService', () => {
       { rules: [{ pattern: '(?<title>.+)', flags: 'g' }] },
     ])
       await expect(service.validate(config)).rejects.toThrow();
+  });
+});
+
+describe('regex metadata worker', () => {
+  // CI runs server tests without building @bookorbit/types, and a worker thread cannot see the test alias.
+  it.each(['regex-metadata-engine.ts', 'regex-metadata.worker.ts'])('%s imports only types from the shared package', (file) => {
+    const source = readFileSync(join(__dirname, file), 'utf8');
+    expect(source).not.toMatch(/^import (?!type )[^;]*'@bookorbit\/types'/m);
   });
 });
 
