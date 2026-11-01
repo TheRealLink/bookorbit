@@ -133,6 +133,14 @@ describe('extractCbzCover', () => {
     await expect(extractCbzCover('/book.cbz')).resolves.toEqual(Buffer.from([0x02]));
   });
 
+  it.each([false, true])('selects IMG.jpg before suffixed page names regardless of ZIP entry order (coverFirst=%s)', async (coverFirst) => {
+    const cover = { name: 'IMG.jpg', data: Buffer.from([0x01]) };
+    const page = { name: 'IMG_0004_Seite_001_1L.jpg', data: Buffer.from([0x04]) };
+    mockZip(coverFirst ? [cover, page] : [page, cover]);
+
+    await expect(extractCbzCover('/book.cbz')).resolves.toEqual(cover.data);
+  });
+
   it('skips hidden image files and returns first visible image', async () => {
     mockZip([
       { name: '.hidden.jpg', data: Buffer.from([0xaa]) },

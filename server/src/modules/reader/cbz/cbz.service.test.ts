@@ -212,6 +212,55 @@ describe('CbzService', () => {
     expect(result.mimeType).toBe('image/png');
   });
 
+  it('streams the unsuffixed CBZ cover before numbered pages', async () => {
+    bookService.verifyFileAccess.mockResolvedValue({ format: 'cbz', absolutePath: '/books/cover.cbz' });
+    const pageName = 'IMG_0004_Seite_001_1L.jpg';
+    mockCbzFile(
+      buildCbzBuffer([
+        { name: pageName, data: Buffer.from('page') },
+        { name: 'IMG.jpg', data: Buffer.from('cover') },
+      ]),
+    );
+    mockCreateReadStream.mockReturnValue({} as ReturnType<typeof createReadStream>);
+
+    await service.streamPage(20, 0, user);
+
+    const coverOffset = 30 + Buffer.byteLength(pageName) + 4 + 30 + Buffer.byteLength('IMG.jpg');
+    expect(mockCreateReadStream).toHaveBeenCalledWith('/books/cover.cbz', { start: coverOffset, end: coverOffset + 4 });
+  });
+
+  it('extracts the unsuffixed CBR cover before numbered pages', async () => {
+    bookService.verifyFileAccess.mockResolvedValue({ format: 'cbr', absolutePath: '/books/cover.cbr' });
+    mockReadFile.mockResolvedValue(Buffer.from('rar') as unknown as Awaited<ReturnType<typeof readFile>>);
+    const extract = vi.fn().mockReturnValue({
+      files: [{ fileHeader: { flags: { directory: false } }, extraction: Uint8Array.from([1]) }],
+    });
+    mockCreateExtractorFromData
+      .mockResolvedValueOnce({
+        getFileList: () => ({
+          fileHeaders: ['IMG_0004_Seite_001_1L.jpg', 'IMG.jpg'].map((name) => ({ name, flags: { directory: false } })),
+        }),
+      } as any)
+      .mockResolvedValueOnce({ extract } as any);
+
+    await service.streamPage(21, 0, user);
+
+    expect(extract).toHaveBeenCalledWith({ files: ['IMG.jpg'] });
+  });
+
+  it('streams the unsuffixed CB7 cover before numbered pages', async () => {
+    const sevenZip = new FakeSevenZip({ 'comic/IMG_0004_Seite_001_1L.jpg': 'page', 'comic/IMG.jpg': 'cover' });
+    bookService.verifyFileAccess.mockResolvedValue({ format: 'cb7', absolutePath: '/books/cover.cb7' });
+    mockReadFile.mockResolvedValue(Buffer.from('7z') as unknown as Awaited<ReturnType<typeof readFile>>);
+    mockGetSevenZip.mockResolvedValue(sevenZip as any);
+
+    const first = served(await service.streamPage(22, 0, user));
+    const second = served(await service.streamPage(22, 1, user));
+
+    await expect(readStream(first.stream)).resolves.toEqual(Buffer.from('cover'));
+    await expect(readStream(second.stream)).resolves.toEqual(Buffer.from('page'));
+  });
+
   it('resolves data-descriptor CBZ entries from the central directory', async () => {
     bookService.verifyFileAccess.mockResolvedValue({ format: 'cbz', absolutePath: '/books/four.cbz' });
     mockCbzFile(

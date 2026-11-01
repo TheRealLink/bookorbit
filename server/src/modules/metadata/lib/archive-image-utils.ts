@@ -1,8 +1,6 @@
-const ARCHIVE_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']);
+export { compareArchiveEntryNames } from '../../../common/archive-entry-sort';
 
-export function compareArchiveEntryNames(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
+const ARCHIVE_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']);
 
 export function isArchiveImageFile(name: string): boolean {
   const dot = name.lastIndexOf('.');

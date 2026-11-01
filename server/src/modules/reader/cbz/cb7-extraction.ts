@@ -1,8 +1,5 @@
 import type { SevenZipFS } from '../../../common/sevenzip';
-
-function naturalCompare(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
+import { compareArchiveEntryNames } from '../../../common/archive-entry-sort';
 
 export function pathBasename(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
@@ -15,7 +12,7 @@ export function pathBasename(path: string): string {
  * flat extraction collapsed into one.
  */
 export function compareComicPagePaths(a: string, b: string): number {
-  return naturalCompare(pathBasename(a), pathBasename(b)) || naturalCompare(a, b);
+  return compareArchiveEntryNames(pathBasename(a), pathBasename(b)) || compareArchiveEntryNames(a, b);
 }
 
 function entryKind(fs: SevenZipFS, root: string, path: string): 'dir' | 'file' | null {
